@@ -16,33 +16,29 @@ const char* menuOptions[6] = {
   "Restart"
 };
 
+uint8_t screenPowerPhase = 0;
+uint32_t screenPowerSince = 0;
+void screenCommand(uint8_t command) {
+  tft.startWrite(); tft.writeCommand(command); tft.endWrite();
+  tft2.startWrite(); tft2.writeCommand(command); tft2.endWrite();
+}
 void wygasEkran() {
-  tft.startWrite();
-  tft.writeCommand(GC9A01A_SLPIN);
-  delay(5);
-  tft.writeCommand(GC9A01A_DISPOFF);
-  tft.endWrite();
-  tft2.startWrite();
-  tft2.writeCommand(GC9A01A_SLPIN);
-  delay(5);
-  tft2.writeCommand(GC9A01A_DISPOFF);
-  tft2.endWrite();
+  screenCommand(GC9A01A_SLPIN);
+  screenPowerSince = millis(); screenPowerPhase = 1;
 }
-
 void obudzEkran() {
-  tft.startWrite();
-  tft.writeCommand(GC9A01A_DISPON); 
-  delay(5);
-  tft.writeCommand(GC9A01A_SLPOUT); 
-  tft.endWrite();
-  tft2.startWrite();
-  tft2.writeCommand(GC9A01A_DISPON); 
-  delay(5);
-  tft2.writeCommand(GC9A01A_SLPOUT); 
-  tft2.endWrite();
-  delay(120); // wymagane dla stabilności
+  screenCommand(GC9A01A_DISPON);
+  screenPowerSince = millis(); screenPowerPhase = 2;
 }
-
+bool screenPowerReady() { return ekranWlaczony && screenPowerPhase == 0; }
+void updateScreenPower() {
+  const uint32_t elapsed = millis() - screenPowerSince;
+  if (screenPowerPhase == 1 && elapsed >= 5) {
+    screenCommand(GC9A01A_DISPOFF); screenPowerPhase = 0;
+  } else if (screenPowerPhase == 2 && elapsed >= 5) {
+    screenCommand(GC9A01A_SLPOUT); screenPowerPhase = 3; screenPowerSince = millis();
+  } else if (screenPowerPhase == 3 && elapsed >= 120) screenPowerPhase = 0;
+}
 void drawMenu() {
   int x = 30, y = 48, w = 180, h = 144;
   tft2.fillRoundRect(x, y, w, h, 8, GC9A01A_DARKGREY);  // tło menu
@@ -68,7 +64,7 @@ void drawPauseSubmenu() {
   tft2.setTextSize(2);
   tft2.setTextColor(GC9A01A_WHITE);
   tft2.setCursor(x + 10, y + 10);
-  tft2.print("VPW pause (ms)");
+  tft2.print(F("VPW pause (ms)"));
 
   // wartość duża, wyśrodkowana
   char buf[6];
@@ -84,11 +80,11 @@ void drawPauseSubmenu() {
   tft2.setTextSize(2);
   tft2.setTextColor(GC9A01A_WHITE);
   tft2.setCursor(x + 10, y + h - 60);
-  tft2.print("DOWN: -10 ms");
+  tft2.print(F("DOWN: -10 ms"));
   tft2.setCursor(x + 10, y + h - 80);
-  tft2.print("UP:   +10 ms");
+  tft2.print(F("UP:   +10 ms"));
   tft2.setCursor(x + 10, y + h - 40);
-  tft2.print("OK:   BACK");
+  tft2.print(F("OK:   BACK"));
   wdt_reset();
 }
 
@@ -104,7 +100,6 @@ void handleMenuOption(uint8_t pos) {
     guiStarted = false;
     guiStartTime = (uint16_t)(millis() & 0xFFFF);
     nextBMP();
-    bmpDrawing = true;
     break;
     case 1: DBGL("Wybrano Opcja 2 - gauge"); 
     if (guiMode) { drawGUI2(); }

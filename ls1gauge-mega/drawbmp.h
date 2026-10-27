@@ -73,13 +73,14 @@ uint32_t read32(File &f) {
   return result;
 }
 File bmpFile;
-uint8_t bmpW, bmpH, bmpRow = 0, y = 0;
+uint8_t bmpW, bmpH, bmpRow = 0, bmpCol = 0;
 uint32_t bmpImgOff, bmpRowSize;
 bool bmpFlip, bmpDrawing = false;
 char currentBMP[14];
 
 void startDrawBMP(const char* filename) {
   DBGL("BMP Start");
+  bmpFile.close();
   bmpFile = SD.open(filename);
   if (!bmpFile) { bmpDrawing = false; return; }
   if (read16(bmpFile) != 0x4D42) { bmpFile.close(); bmpDrawing = false; return; } 
@@ -87,15 +88,15 @@ void startDrawBMP(const char* filename) {
   (void)read32(bmpFile);
   bmpImgOff = read32(bmpFile);
   if (read32(bmpFile) != 40) { bmpFile.close(); bmpDrawing = false; return; }
-  bmpW = read32(bmpFile);
-  bmpH = read32(bmpFile);
+  uint32_t width = read32(bmpFile);
+  uint32_t height = read32(bmpFile);
   if (read16(bmpFile) != 1) { bmpFile.close(); bmpDrawing = false; return; }
   if (read16(bmpFile) != 24) { bmpFile.close(); bmpDrawing = false; return; }
   if (read32(bmpFile) != 0) { bmpFile.close(); bmpDrawing = false; return; }
-  if (bmpW > 240) { bmpFile.close(); bmpDrawing = false; return; }
-  bmpH = abs(bmpH);
+  if (width == 0 || width > 240 || height == 0 || height > 240) { bmpFile.close(); bmpDrawing = false; return; }
+  bmpW = (uint8_t)width; bmpH = (uint8_t)height;
   bmpRowSize = (bmpW * 3 + 3) & ~3;
-  bmpRow = 0;
+  bmpRow = bmpCol = 0;
   bmpFile.seek(bmpImgOff);
   tft.fillScreen(GC9A01A_BLACK);
   bmpDrawing = true;
@@ -104,21 +105,22 @@ void startDrawBMP(const char* filename) {
 void continueDrawBMP() {
   if (!bmpDrawing) return;
 
-  int rowsThisLoop = 20; // <-- ile wierszy naraz
-  while (rowsThisLoop-- && bmpRow < bmpH) {
-    static uint8_t sdbuffer[240*3 + 3];
-    bmpFile.read(sdbuffer, bmpRowSize);
-    tft.startWrite();
-    tft.setAddrWindow(0, bmpH - 1 - bmpRow, bmpW, 1);
-    
-    for (int col = 0; col < bmpW; col++) {
-      int i = col * 3;
-      tft.SPI_WRITE16(tft.color565(sdbuffer[i + 2], sdbuffer[i + 1], sdbuffer[i]));
-      //tft.pushColor(tft.color565(sdbuffer[i + 2], sdbuffer[i + 1], sdbuffer[i]));
-    }
-    tft.endWrite();
-    bmpRow++;
+  // 16 pixels per loop: 48 bytes on stack instead of a permanent 723-byte row.
+  uint8_t pixels[48];
+  uint8_t columns = min((uint8_t)16, (uint8_t)(bmpW - bmpCol));
+  if (bmpCol == 0) bmpFile.seek(bmpImgOff + (uint32_t)bmpRow * bmpRowSize);
+  if (bmpFile.read(pixels, columns * 3) != columns * 3) {
+    bmpFile.close(); bmpDrawing = false; return;
   }
+  tft.startWrite();
+  tft.setAddrWindow(bmpCol, bmpH - 1 - bmpRow, columns, 1);
+  for (uint8_t col = 0; col < columns; ++col) {
+    uint8_t i = col * 3;
+    tft.SPI_WRITE16(tft.color565(pixels[i + 2], pixels[i + 1], pixels[i]));
+  }
+  tft.endWrite();
+  bmpCol += columns;
+  if (bmpCol == bmpW) { bmpCol = 0; ++bmpRow; }
   if (bmpRow >= bmpH) {
     bmpFile.close();
     bmpDrawing = false;

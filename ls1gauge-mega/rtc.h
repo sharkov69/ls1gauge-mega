@@ -104,14 +104,14 @@ lastKat2 = kat2;
     tft2.fillRect(40, 95, 60, 40, GC9A01A_BLACK);
 
     tft2.setCursor(40, 95);
-    if (now.minute() < 10) tft2.print("0");
+    if (now.minute() < 10) tft2.print(F("0"));
     tft2.print(now.minute());
     lastMinute = now.minute();
   }
   if (now.hour() != lastHour) {
     tft2.fillRect(40, 50, 60, 40, GC9A01A_BLACK);
     tft2.setCursor(40, 50);
-    if (now.hour() < 10) tft2.print("0");
+    if (now.hour() < 10) tft2.print(F("0"));
     tft2.print(now.hour());
     lastHour = now.hour();
   }
@@ -123,8 +123,7 @@ if (clockMode) {
   tft2.setFont(&Neue_Leights28pt7b);
   if (now.minute() != lastMinute) {
     tft2.fillRect(30, 93, 71, 45, GC9A01A_BLACK);
-    String buf = String(now.minute());
-    if (now.minute() < 10) buf = "0" + buf;
+    char buf[3]; snprintf(buf, sizeof(buf), "%02u", now.minute());
     int16_t x1, y1;
     uint16_t w, h;
     tft2.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
@@ -134,8 +133,7 @@ if (clockMode) {
   }
   if (now.hour() != lastHour) {
     tft2.fillRect(33, 42, 67, 45, GC9A01A_BLACK);
-    String buf = String(now.hour());
-    if (now.hour() < 10) buf = "0" + buf;    
+    char buf[3]; snprintf(buf, sizeof(buf), "%02u", now.hour());
     int16_t x1, y1;
     uint16_t w, h;
     tft2.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
@@ -152,7 +150,7 @@ if (clockMode) {
     tft2.print(dni[now.dayOfTheWeek()]);
     tft2.setTextSize(3);
     tft2.setCursor(105, 75);
-    tft2.print(now.day()); tft2.print("."); if (now.month() < 10) tft2.print("0"); tft2.print(now.month());
+    tft2.print(now.day()); tft2.print(F(".")); if (now.month() < 10) tft2.print(F("0")); tft2.print(now.month());
     tft2.setCursor(105, 105);
     tft2.print(now.year());
 
@@ -169,8 +167,8 @@ if (cmd[TEMP_IN].wartosc != cmd[TEMP_IN].lastValue) {
   cmd[TEMP_IN].wartosc = constrain(cmd[TEMP_IN].wartosc, -999, 999);
   tft2.fillRect(115, 144, 90, 18, GC9A01A_BLACK);
   tft2.setCursor(70, 145);
-  tft2.print("In: ");
-  tft2.print(cmd[TEMP_IN].wartosc / 10.0, 1); tft2.write(0xF7); tft2.print("C");
+  tft2.print(F("In: "));
+  tft2.print(cmd[TEMP_IN].wartosc / 10.0, 1); tft2.write(0xF7); tft2.print(F("C"));
   cmd[TEMP_IN].lastValue = cmd[TEMP_IN].wartosc;
 }
 // Out Temp
@@ -178,8 +176,8 @@ if (cmd[TEMP_OUT].wartosc != cmd[TEMP_OUT].lastValue) {
   cmd[TEMP_OUT].wartosc = constrain(cmd[TEMP_OUT].wartosc, -999, 999);
   tft2.fillRect(115, 164, 90, 18, GC9A01A_BLACK);
   tft2.setCursor(70, 165);
-  tft2.print("Out:");
-  tft2.print(cmd[TEMP_OUT].wartosc / 10.0, 1); tft2.write(0xF7); tft2.print("C");
+  tft2.print(F("Out:"));
+  tft2.print(cmd[TEMP_OUT].wartosc / 10.0, 1); tft2.write(0xF7); tft2.print(F("C"));
   cmd[TEMP_OUT].lastValue = cmd[TEMP_OUT].wartosc;
 }
 // Vent Temp
@@ -187,8 +185,8 @@ if (cmd[TEMP_AC].wartosc != cmd[TEMP_AC].lastValue) {
   cmd[TEMP_AC].wartosc = constrain(cmd[TEMP_AC].wartosc, -999, 999);
   tft2.fillRect(115, 184, 90, 18, GC9A01A_BLACK);
   tft2.setCursor(70, 185);
-  tft2.print("AC: ");
-  tft2.print(cmd[TEMP_AC].wartosc / 10.0, 1); tft2.write(0xF7); tft2.print("C");
+  tft2.print(F("AC: "));
+  tft2.print(cmd[TEMP_AC].wartosc / 10.0, 1); tft2.write(0xF7); tft2.print(F("C"));
   cmd[TEMP_AC].lastValue = cmd[TEMP_AC].wartosc;
 }
 // Humidity
@@ -196,9 +194,9 @@ if (cmd[HUM].wartosc != cmd[HUM].lastValue) {
   cmd[HUM].wartosc = constrain(cmd[HUM].wartosc, 99, 999);
   tft2.fillRect(115, 204, 60, 18, GC9A01A_BLACK);
   tft2.setCursor(70, 205);
-  tft2.print("Hum:");
+  tft2.print(F("Hum:"));
   tft2.print(cmd[HUM].wartosc / 10.0, 0);
-  tft2.print("%");
+  tft2.print(F("%"));
   cmd[HUM].lastValue = cmd[HUM].wartosc;
 }
     } else {
@@ -206,7 +204,7 @@ if (cmd[HUM].wartosc != cmd[HUM].lastValue) {
   tft2.setTextColor(GC9A01A_WHITE);
  if (clock) {
       tft2.setCursor(113, 100);
-    tft2.print(":");
+    tft2.print(F(":"));
  } else {
  tft2.fillRect(119, 105, 12, 25, GC9A01A_BLACK);
  }
@@ -216,8 +214,7 @@ tft2.setTextSize(2);
  tft2.setFont(&Neue_Leights28pt7b);
   if (now.minute() != lastMinute) {
     tft2.fillRect(63, 130, 126, 85, GC9A01A_BLACK);
-    String buf = String(now.minute());
-    if (now.minute() < 10) buf = "0" + buf;
+    char buf[3]; snprintf(buf, sizeof(buf), "%02u", now.minute());
     int16_t x1, y1;
     uint16_t w, h;
     tft2.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
@@ -227,8 +224,7 @@ tft2.setTextSize(2);
   }
   if (now.hour() != lastHour) {
     tft2.fillRect(63, 25, 126, 85, GC9A01A_BLACK);
-    String buf = String(now.hour());
-    if (now.hour() < 10) buf = "0" + buf;    
+    char buf[3]; snprintf(buf, sizeof(buf), "%02u", now.hour());
     int16_t x1, y1;
     uint16_t w, h;
     tft2.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
@@ -244,7 +240,7 @@ if (cmd[TEMP_IN].wartosc != cmd[TEMP_IN].lastValue) {
   cmd[TEMP_IN].wartosc = constrain(cmd[TEMP_IN].wartosc, -999, 999);
   tft2.fillRect(12, 75, 40, 18, GC9A01A_BLACK);
   tft2.setCursor(12, 75);
-  tft2.print("In:");
+  tft2.print(F("In:"));
   uint8_t minus = 0;
   if (cmd[TEMP_IN].wartosc / 10.0 < 0) {minus=10;} else {minus=0;}
   tft2.fillRect(12-minus, 95, 50, 18, GC9A01A_BLACK);
@@ -257,7 +253,7 @@ if (cmd[TEMP_OUT].wartosc != cmd[TEMP_OUT].lastValue) {
   cmd[TEMP_OUT].wartosc = constrain(cmd[TEMP_OUT].wartosc, -999, 999);
   tft2.fillRect(12, 115, 45, 18, GC9A01A_BLACK);
   tft2.setCursor(12, 115);
-  tft2.print("Out:");
+  tft2.print(F("Out:"));
     uint8_t minus = 0;
   if (cmd[TEMP_OUT].wartosc < 0) {minus=10;} else {minus=0;}
    tft2.fillRect(12-minus, 135, 50, 18, GC9A01A_BLACK);
@@ -271,7 +267,7 @@ if (cmd[TEMP_AC].wartosc != cmd[TEMP_AC].lastValue) {
   cmd[TEMP_AC].wartosc = constrain(cmd[TEMP_AC].wartosc, -999, 999);
   tft2.fillRect(187, 75, 35, 18, GC9A01A_BLACK);
   tft2.setCursor(187, 75);
-  tft2.print("AC:");
+  tft2.print(F("AC:"));
     tft2.fillRect(187, 95, 50, 18, GC9A01A_BLACK);
   tft2.setCursor(187, 95);
   tft2.print(cmd[TEMP_AC].wartosc / 10.0, 1); 
@@ -282,12 +278,12 @@ if (cmd[HUM].wartosc != cmd[HUM].lastValue) {
   cmd[HUM].wartosc = constrain(cmd[HUM].wartosc, 99, 999);
   tft2.fillRect(187, 115, 45, 18, GC9A01A_BLACK);
   tft2.setCursor(187, 115);
-  tft2.print("Hum:");
+  tft2.print(F("Hum:"));
   tft2.fillRect(187, 135, 45, 18, GC9A01A_BLACK);
   tft2.setCursor(187, 135);
   if (cmd[HUM].wartosc > 990) cmd[HUM].wartosc = 990;
   tft2.print(cmd[HUM].wartosc / 10.0, 0);
-  tft2.print("%");
+  tft2.print(F("%"));
   cmd[HUM].lastValue = cmd[HUM].wartosc;
 }
 

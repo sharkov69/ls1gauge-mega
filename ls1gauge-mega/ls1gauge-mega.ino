@@ -79,6 +79,7 @@ void(* resetFunc) (void) = 0;
 #include "display.h"
 
 #include "menu.h"
+#include "console.h"
 
   /*extern int __heap_start, *__brkval;
 int freeMemory() {
@@ -177,7 +178,7 @@ void setup() {
  
   lastStats = (uint16_t)(millis() & 0xFFFF);
   guiStartTime = (uint16_t)(millis() & 0xFFFF);
-  netLastCheck = (uint16_t)(millis() & 0xFFFF);
+  netLastCheck = millis();
   #ifdef DEBUG
   DBGL(F("Setup done."));
   #endif
@@ -189,11 +190,21 @@ void loop(void) {
   //DBG(F("Free RAM: "));
   //DBGL(freeMemory());
 
+  const uint32_t loopStarted = micros();
+  sampleFreeRam();
+  updateScreenPower();
   czas = (uint16_t)(millis() & 0xFFFF);
-  send();
   read();
+  if (modemNeedsFastService()) {
+    modemInitTick();
+    wdt_reset();
+    const uint32_t loopUs = micros() - loopStarted;
+    if (loopUs > maxLoopUs) maxLoopUs = loopUs;
+    return; // GPS response/timeout only; VPW reception continues on every pass.
+  }
+  send();
 
-  if (!guiStarted && (uint16_t)(czas - guiStartTime) >= 5000) {
+  if (!guiStarted && !bmpDrawing && (uint16_t)(czas - guiStartTime) >= 5000) {
     guiStarted = true;
     if (guiMode) {
       drawGUI();
@@ -201,7 +212,7 @@ void loop(void) {
     drawClockGUI(); 
 
   }
-  if (guiStarted && (uint16_t)(czas - lastUpdate) >= refreshInterval) {
+  if (guiStarted && screenPowerReady() && (uint16_t)(czas - lastUpdate) >= refreshInterval) {
     lastUpdate = czas;
 
   //char buf[6];
@@ -239,7 +250,8 @@ display(SPARK, cmd[SPARK].wartosc);
  tft.setTextColor(GC9A01A_WHITE);
  tft.fillRect(90, 50, 80, 22, GC9A01A_BLACK);
   if (cmd[SPEED].wartosc < 0) {cmd[SPEED].wartosc = 0;}
-  String buf = String(cmd[SPEED].wartosc);
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%d", cmd[SPEED].wartosc);
   int16_t x1, y1;
     uint16_t w, h;
     tft.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
@@ -254,7 +266,7 @@ display(SPARK, cmd[SPARK].wartosc);
   tft.setFont(&Neue_Leights28pt7b);
   
     tft.fillRect(50, 90, 140, 45, GC9A01A_BLACK);
-    buf = String(cmd[RPM].wartosc);
+    snprintf(buf, sizeof(buf), "%d", cmd[RPM].wartosc);
     tft.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
     tft.setCursor(119 - w / 2, 130);
     tft.print(buf);
@@ -434,11 +446,7 @@ cmd[TEMP_IN].wartosc = (int16_t)((sensors.getTemp(tempIn)  * 10 + 64) >> 7);
     sensors.requestTemperatures(); // rozpocznij kolejny pomiar
     //cmd[15].wartosc = (int16_t)(tOut >= 0 ? tOut * 10.0 + 0.5 : tOut * 10.0 - 0.5);
     //cmd[16].wartosc = (int16_t)(tIn >= 0 ? tIn * 10.0 + 0.5 : tIn * 10.0 - 0.5);
-    if (modemInitDone()) {
-    if(!stopModemWatchdog) {
-      getGPSInfo();
-    }
-    }
+    if (modemInitDone()) getGPSInfo();
   }
 
   if (tick) {
@@ -491,6 +499,7 @@ cmd[TEMP_IN].wartosc = (int16_t)((sensors.getTemp(tempIn)  * 10 + 64) >> 7);
       count = 0;
     }
     if (logIndex >= LOG_ENTRIES) {
+      ++logGeneration;
       dumpLogToSD();
       //memcpy(logHttpBuffer, logBuffer, sizeof(logBuffer));
       if (modemInitDone()) {
@@ -499,56 +508,15 @@ cmd[TEMP_IN].wartosc = (int16_t)((sensors.getTemp(tempIn)  * 10 + 64) >> 7);
       //getGPSInfo();
       logIndex = 0;
     }
-    if (!menuActive) {
+    if (!menuActive && screenPowerReady()) {
       drawTFT2();
     }
   
   }
-  static String buffer = "";
-  if (Serial.available()) {
-    char c = Serial.read();
-    if (c == '\n' || c == '\r') {
-      if (buffer.startsWith("SETTIME=") && buffer.length() >= 27) {
-        int y = buffer.substring(8, 12).toInt();
-        int m = buffer.substring(13, 15).toInt();
-        int d = buffer.substring(16, 18).toInt();
-        int h = buffer.substring(19, 21).toInt();
-        int mi = buffer.substring(22, 24).toInt();
-        int s = buffer.substring(25, 27).toInt();
-        DateTime compiled(DateTime(y, m, d, h, mi, s));
-        EEPROM.update(EEPROM_DST_FLAG_ADDR, czyLetni(compiled.day(), compiled.month(), compiled.dayOfTheWeek()) ? 1 : 0);
-        rtc.adjust(compiled);
-      }
-      buffer = "";
-    } else {
-      buffer += c;
-    }
-  }
+  updateLogToSD();
+  read();
+  handleConsole();
   modemInitTick();
-  if (modemInitDone()) {
-  updateSendLog();
-
-  if(!stopModemWatchdog) {
-  networkCheck_async();
-  //DBGL(F("ModemWathdog on!"));
-  if (networkCheckIsDone()) {
-    if (isNetworkReady() ) {
-      //DBGL(F("Modem online"));
-      modemOnline = true;
-      netLastCheck = czas;
-  } else {
-    if ((uint16_t)(czas - netLastCheck) > NET_TIMEOUT) {
-      DBGL(F("Modem: offline... reset"));
-      modemInitStart();
-      netLastCheck = czas;
-    } else {
-      DBGL(F("Modem: offline... czekam"));
-      modemOnline = false;
-    }
-  }
-}
-  }
-  }
  //DBGL(F("Loop"));
    static uint32_t lastKick = 0;
   uint32_t now = millis();
@@ -556,5 +524,7 @@ cmd[TEMP_IN].wartosc = (int16_t)((sensors.getTemp(tempIn)  * 10 + 64) >> 7);
       wdt_reset();
       lastKick = now;
     }
-  while ((uint16_t)(millis() - czas) < 5);
+
+  const uint32_t loopUs = micros() - loopStarted;
+  if (loopUs > maxLoopUs) maxLoopUs = loopUs;
 }

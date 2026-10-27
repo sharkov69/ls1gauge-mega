@@ -5,7 +5,7 @@
   uint16_t normColor;
 };
 
-const DisplayField fields[14] = {
+const DisplayField fields[14] PROGMEM = {
   {155, 140, 35, 18,   -1, 0, 2, 3, GC9A01A_WHITE},  // AIR   = 0
   {175, 100, 35, 18,   -1, 2, 2, 3, GC9A01A_WHITE},  // MAP   = 1
   { 70,  80, 35, 18,   89, 0, 2, 3, GC9A01A_WHITE},  // TPS   = 2
@@ -32,7 +32,8 @@ void display(uint8_t id, int16_t value) {
     cmd[id].lastValue = value;
   }
 
-  DisplayField field = fields[id];
+  DisplayField field;
+  memcpy_P(&field, &fields[id], sizeof(field));
   
   tft.fillRect(field.x, field.y, field.w, field.h, GC9A01A_BLACK);
   tft.setTextSize(field.textSize);
@@ -69,33 +70,33 @@ void drawGUI() {
 } 
   tft.fillScreen(GC9A01A_BLACK);
   tft.setTextSize(2); tft.setTextColor(GC9A01A_WHITE);
-  tft.setCursor(55, 30); tft.println("Speed:");
+  tft.setCursor(55, 30); tft.println(F("Speed:"));
   tft.setTextSize(3);
-  tft.setCursor(40, 50); tft.println("RPM:");
+  tft.setCursor(40, 50); tft.println(F("RPM:"));
   lastKat = KAT;
   obrotomierz(lastKat, lastKat+300, 0x39E7);
   tft.setTextSize(2);
-  tft.setCursor(10, 80); tft.println("TPS:");
-  tft.setCursor(70, 80); tft.print("  0"); tft.println("%");
-  tft.setCursor(125, 80); tft.println("BAT:");
-  tft.setCursor(175, 80); tft.print(" 0.0"); tft.println("V");
-  tft.setCursor(10, 100); tft.println("AFR1:");
-  tft.setCursor(125, 100); tft.println("MAP:");
-  tft.setCursor(175, 100); tft.print("0.0"); tft.setTextSize(1); tft.setCursor(215, 107); tft.println("bar");
+  tft.setCursor(10, 80); tft.println(F("TPS:"));
+  tft.setCursor(70, 80); tft.print(F("  0")); tft.println(F("%"));
+  tft.setCursor(125, 80); tft.println(F("BAT:"));
+  tft.setCursor(175, 80); tft.print(F(" 0.0")); tft.println(F("V"));
+  tft.setCursor(10, 100); tft.println(F("AFR1:"));
+  tft.setCursor(125, 100); tft.println(F("MAP:"));
+  tft.setCursor(175, 100); tft.print(F("0.0")); tft.setTextSize(1); tft.setCursor(215, 107); tft.println(F("bar"));
   tft.setTextSize(2);
-  tft.setCursor(10, 120); tft.println("AFR2:");
-  tft.setCursor(125, 120); tft.println("OIL:");
-  tft.setCursor(175, 120); tft.print("0.0"); tft.setTextSize(1); tft.setCursor(215, 127); tft.println("bar");
+  tft.setCursor(10, 120); tft.println(F("AFR2:"));
+  tft.setCursor(125, 120); tft.println(F("OIL:"));
+  tft.setCursor(175, 120); tft.print(F("0.0")); tft.setTextSize(1); tft.setCursor(215, 127); tft.println(F("bar"));
   tft.setTextSize(2);
-  tft.setCursor(25, 140); tft.println("Air Temp:");
-  tft.setCursor(155, 140); tft.print("  0"); tft.write(0xF7); tft.println("C");
-  tft.setCursor(25, 160); tft.println("Water Temp:");
-  tft.setCursor(155, 160); tft.print("  0"); tft.write(0xF7);  tft.println("C");
-  tft.setCursor(25, 180); tft.println("Trans Temp:");
-  tft.setCursor(155, 180); tft.print("  0"); tft.write(0xF7); tft.println("C");
+  tft.setCursor(25, 140); tft.println(F("Air Temp:"));
+  tft.setCursor(155, 140); tft.print(F("  0")); tft.write(0xF7); tft.println(F("C"));
+  tft.setCursor(25, 160); tft.println(F("Water Temp:"));
+  tft.setCursor(155, 160); tft.print(F("  0")); tft.write(0xF7);  tft.println(F("C"));
+  tft.setCursor(25, 180); tft.println(F("Trans Temp:"));
+  tft.setCursor(155, 180); tft.print(F("  0")); tft.write(0xF7); tft.println(F("C"));
 
   tft.setTextSize(1); tft.setTextColor(GC9A01A_YELLOW);
-  tft.setCursor(78, 225); tft.println("TX/RX    /");
+  tft.setCursor(78, 225); tft.println(F("TX/RX    /"));
   wdt_reset();
 }
 
@@ -107,20 +108,20 @@ void drawGUI2() {
    
   tft.fillScreen(GC9A01A_BLACK);
   tft.setTextSize(2); tft.setTextColor(GC9A01A_CYAN);
-  tft.setCursor(60, 25); tft.println("Speed:");
+  tft.setCursor(60, 25); tft.println(F("Speed:"));
   lastKat = KAT;
   obrotomierz(lastKat, lastKat+300, 0x39E7);
   tft.setTextSize(2);
-  tft.setCursor(30, 70); tft.println("RPM:");
-  tft.setCursor(25, 140); tft.println("Air Temp:");
-  tft.setCursor(155, 140); tft.print("  0"); tft.write(0xF7); tft.println("C");
-  tft.setCursor(25, 160); tft.println("Water Temp:");
-  tft.setCursor(155, 160); tft.print("  0"); tft.write(0xF7);  tft.println("C");
-  tft.setCursor(25, 180); tft.println("Trans Temp:");
-  tft.setCursor(155, 180); tft.print("  0"); tft.write(0xF7); tft.println("C");
-  tft.setCursor(72, 200); tft.println("Bat:");
+  tft.setCursor(30, 70); tft.println(F("RPM:"));
+  tft.setCursor(25, 140); tft.println(F("Air Temp:"));
+  tft.setCursor(155, 140); tft.print(F("  0")); tft.write(0xF7); tft.println(F("C"));
+  tft.setCursor(25, 160); tft.println(F("Water Temp:"));
+  tft.setCursor(155, 160); tft.print(F("  0")); tft.write(0xF7);  tft.println(F("C"));
+  tft.setCursor(25, 180); tft.println(F("Trans Temp:"));
+  tft.setCursor(155, 180); tft.print(F("  0")); tft.write(0xF7); tft.println(F("C"));
+  tft.setCursor(72, 200); tft.println(F("Bat:"));
   tft.setTextSize(1); tft.setTextColor(GC9A01A_YELLOW);
-  tft.setCursor(78, 225); tft.println("TX/RX    /");
+  tft.setCursor(78, 225); tft.println(F("TX/RX    /"));
   wdt_reset();
 }
 

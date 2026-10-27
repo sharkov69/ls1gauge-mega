@@ -4,7 +4,7 @@
 
 ## Zależności
 
-Wersje w tabeli odczytano z lokalnych plików `library.properties` autora podczas dokumentowania projektu. Nie stanowią potwierdzenia wersji użytych do ostatniego wgrania ani gwarancji kompilacji bez zmian. Repozytorium nie zawiera pliku blokującego wersje zależności.
+Wersje w tabeli potwierdzono kompilacją etapu 1 dla `arduino:avr:mega`, z pakietem Arduino AVR Boards 1.8.8. Repozytorium nie zawiera pliku blokującego wersje zależności.
 
 | Biblioteka | Zaobserwowana wersja | Zastosowanie |
 | --- | --- | --- |
@@ -22,19 +22,19 @@ Wersje w tabeli odczytano z lokalnych plików `library.properties` autora podcza
 
 Zainstaluj zależności z menedżera bibliotek Arduino IDE. Bibliotekę VPW skopiuj z repozytorium do katalogu `libraries/J1850-VPW-WC` swojego szkicownika Arduino, tak aby pliki `.h` i `.cpp` leżały bezpośrednio w tym katalogu. Nie zastępuj jej inną biblioteką J1850 o podobnej nazwie: szkic używa nagłówka `j1850vpw-wc.h` i zmian tej wersji.
 
-W przypadku SdFat włącz szczegółowy wynik kompilacji i sprawdź, z którego katalogu IDE pobiera `SdFat.h`. Kod używa `SdFat`, `File`, `SPI_FULL_SPEED`, `openNext()` i `getName()`. W lokalnym środowisku są dwa warianty SdFat; bez wyniku kompilacji nie można potwierdzić, który obsługiwał działający wsad. Nie instaluj obu wariantów w celu rozwiązania konfliktu.
+W przypadku SdFat włącz szczegółowy wynik kompilacji i sprawdź, z którego katalogu IDE pobiera `SdFat.h`. Kod używa `SdFat`, `File`, `SPI_FULL_SPEED`, `openNext()` i `getName()`. W lokalnym środowisku są dwa warianty SdFat; kompilacja etapu 1 użyła SdFat 2.3.0. Nie instaluj obu wariantów w celu rozwiązania konfliktu.
 
 ## Przygotowanie i wgranie
 
 1. Pobierz repozytorium i otwórz `ls1gauge-mega/ls1gauge-mega.ino`. Zachowaj pliki nagłówkowe w tym samym folderze co szkic.
 2. Zainstaluj pakiet **Arduino AVR Boards** i wybierz **Arduino Mega or Mega 2560**, procesor **ATmega2560** oraz port swojej płytki.
 3. Zainstaluj biblioteki z tabeli i lokalną bibliotekę VPW.
-4. Porównaj sprzęt z [tabelą połączeń](PODLACZENIA.md). Ustaw adresy DS18B20 w `temp.h`, APN w `modem.h` i adres serwera w obu plikach modemu.
+4. Porównaj sprzęt z [tabelą połączeń](PODLACZENIA.md). Ustaw adresy DS18B20 w `temp.h`, APN w `modem.h` i adres serwera `LOGGER_URL` w `modem.h`.
 5. Uruchom weryfikację szkicu w IDE. Zapisz wynik kompilacji wraz z wersją pakietu AVR i wybranymi ścieżkami bibliotek, jeśli chcesz odtworzyć środowisko na innym komputerze.
 6. Wgraj szkic. Ustaw czas RTC przez terminal i sprawdź ustawienia demo, widoku oraz pauzy VPW.
 7. Sprawdź zegar, odczyty czujników i ekrany. Następnie sprawdź komunikację z pojazdem przez właściwy interfejs VPW, zapis pliku CSV i odpowiedź serwera.
 
-Podczas przygotowania tej dokumentacji nie wykonywano kompilacji, wgrywania ani testu sprzętowego. Zmiana obejmuje wyłącznie pliki Markdown.
+Etap 1 przeszedł kompilację AVR i testy hosta. Nie wgrywano go na urządzenie. Procedurę próby i wyniki pamięci zawiera [ETAP1.md](ETAP1.md).
 
 ## Konfiguracja
 
@@ -44,9 +44,9 @@ Podczas przygotowania tej dokumentacji nie wykonywano kompilacji, wgrywania ani 
 | Adres DS18B20 zewnętrznego | `temp.h`, `tempOut` | `28 F5 FB 33 00 00 00 91` |
 | Typ DHT | `temp.h`, `DHTTYPE` | `DHT22` |
 | Interwał czujników | `temp.h`, `SENSORS_INTERVAL` | 2500 ms; komentarz o 5 s jest nieaktualny |
-| APN | `modem.h`, `STEPS` | `internet` |
-| Wybór trybu sieci modemu | `modem.h`, `STEPS` | `AT+CNMP=13`; znaczenie sprawdź dla własnego modemu |
-| Endpoint logów | `modem.h`, `modem-post.h` | `http://ls1.cyra.com.pl/logger.php` |
+| APN | `modem.h`, `initStep()` | `internet` |
+| Wybór trybu sieci modemu | `modem.h`, `initStep()` | `AT+CNMP=13`; znaczenie sprawdź dla własnego modemu |
+| Endpoint logów | `modem.h`, `LOGGER_URL` | `http://ls1.cyra.com.pl/logger.php` |
 | Odstęp zapytań VPW | EEPROM / menu | 25–125 ms; 75 ms po wykryciu wartości spoza zakresu |
 | Logo | Początek `.ino` | `LOGO` włączone |
 | Diagnostyka | Początek `.ino` | `DEBUG`, `TXRX`, `DEBUGVPW` wyłączone |
@@ -59,13 +59,13 @@ Otwórz monitor portu szeregowego z prędkością **115200 bit/s** i wyślij lin
 SETTIME=2026-10-27 12:00:00
 ```
 
-Zastąp datę i godzinę czasem lokalnym, który chcesz wyświetlać. Parser wymaga układu `SETTIME=YYYY-MM-DD HH:MM:SS`; nie zapewnia pełnej walidacji daty. Program zapisuje również flagę czasu letniego. Korektę lato/zima wykonuje przy starcie według daty, bez uwzględnienia godziny przejścia. Synchronizacja zegara z GPS oraz funkcja pobierania czasu z HTTP są zakomentowane.
+Zastąp datę i godzinę czasem lokalnym, który chcesz wyświetlać. Parser wymaga układu `SETTIME=YYYY-MM-DD HH:MM:SS`; sprawdza zakresy oraz poprawność daty przez RTClib. Program zapisuje również flagę czasu letniego. Korektę lato/zima wykonuje przy starcie według daty, bez uwzględnienia godziny przejścia. Synchronizacja zegara z GPS oraz funkcja pobierania czasu z HTTP są zakomentowane.
 
 ### Karta SD i obrazy
 
 Logi trafiają do katalogu głównego karty. Program nie formatuje karty; przygotuj ją w systemie plików obsługiwanym przez wybraną konfigurację SdFat, np. FAT32.
 
-Opcja `Show pictures` wyszukuje do 12 plików `.bmp` w katalogu głównym. Przygotuj nieskompresowane obrazy BMP 24-bit, z nagłówkiem DIB 40 bajtów, dodatnią wysokością i wymiarami do 240 × 240. Użyj krótkich nazw 8.3, np. `foto01.bmp`; bufor nazwy ma tylko 14 bajtów wraz ze ścieżką i zakończeniem. Nie polegaj na walidacji dużych obrazów: szerokość i wysokość kod przechowuje w `uint8_t`.
+Opcja `Show pictures` wyszukuje do 12 plików `.bmp` w katalogu głównym. Przygotuj nieskompresowane obrazy BMP 24-bit, z nagłówkiem DIB 40 bajtów, dodatnią wysokością i wymiarami do 240 × 240. Użyj krótkich nazw 8.3, np. `foto01.bmp`; bufor nazwy ma tylko 14 bajtów wraz ze ścieżką i zakończeniem. Kod sprawdza wymiary przed konwersją do `uint8_t`; odrzuca większe obrazy i przerywa odczyt uciętego pliku.
 
 ## Przyciski i menu
 

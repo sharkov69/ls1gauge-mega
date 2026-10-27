@@ -13,6 +13,7 @@ struct LogEntry {
 LogEntry logBuffer[LOG_ENTRIES];
 //LogEntry logHttpBuffer[LOG_ENTRIES];
 uint8_t logIndex = 0;
+uint16_t logGeneration = 0;
 #define SREDNIA 2
 int32_t sums[CMD_SIZE+2] = {0};
 uint8_t count = 0;
@@ -47,51 +48,44 @@ void addLogEntry() {
 }
 
 
-// Funkcja zapisująca cały bufor do SD w formacie CSV
+// Write one record per loop; the acquisition buffer remains the only full log buffer.
+File sdLogFile;
+uint8_t sdNext = 0, sdCount = 0;
+uint16_t sdGeneration = 0, sdYear = 0, sdErrors = 0;
+uint8_t sdMonth = 0;
+bool sdPending = false;
 void dumpLogToSD() {
+  if (sdPending) { sdLogFile.close(); ++sdErrors; }
+  DateTime timestamp = rtc.now();
+  sdYear = timestamp.year(); sdMonth = timestamp.month();
   char filename[13];
-  DateTime now = rtc.now();
-  snprintf(filename, sizeof(filename), "l-%02d%02d%02d.csv", now.year() % 100, now.month(), now.day());
+  snprintf(filename, sizeof(filename), "l-%02d%02d%02d.csv", sdYear % 100, sdMonth, timestamp.day());
   bool newFile = !SD.exists(filename);
-  File logFile = SD.open(filename, FILE_WRITE);
-  if (logFile) {
-    if (newFile) {
-      logFile.println(F("Datetime,Air Temp,Manifold Pressure (bar),TPS (%),Battery (V),AFR Bank 2,Speed (km/h),Transmission Temp,Oil Pressure(bar),Engine RPM,Coolant Temp,AFR Bank 1,Vent Temp, Vent  Humidity(%), Outside Temp, Inside Temp, Latitude, Longitude"));
-    }
-
-    for (uint8_t i = 0; i < logIndex; i++) {
-char line[20];
-snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d:%02d",
-         now.year(), now.month(), logBuffer[i].day,
-        logBuffer[i].hour, logBuffer[i].minute, logBuffer[i].second);
-logFile.print(line);
-     
-      
-
-for (uint8_t j = 0; j < CMD_SIZE; j++) {
-  logFile.print(",");
-
-  if (j == 3 || j == 11 || j == 12 || j == 13 || j == 14) {
-    float val = logBuffer[i].data[j] / 10.0;
-    logFile.print(val, 1);  // 1 miejsce po przecinku
-  } else if (j == 1 || j == 7 || j == 4 || j == 10) {
-    float val = logBuffer[i].data[j] / 100.0;
-    logFile.print(val, 1);
-  } else if (j == 15 || j == 16) {
-    float val = decodeCoord(logBuffer[i].data[j], logBuffer[i].data[j+2]);
-    logFile.print(val, 1);   
-  } else {
-    logFile.print(logBuffer[i].data[j]);  // bez dzielenia
-  }
+  sdLogFile = SD.open(filename, FILE_WRITE);
+  sdPending = (bool)sdLogFile;
+  if (!sdPending) { ++sdErrors; return; }
+  sdGeneration = logGeneration; sdNext = 0; sdCount = logIndex;
+  if (newFile) sdLogFile.println(F("Datetime,Air Temp,Manifold Pressure (bar),TPS (%),Battery (V),AFR Bank 2,Speed (km/h),Transmission Temp,Oil Pressure(bar),Engine RPM,Coolant Temp,AFR Bank 1,Vent Temp, Vent  Humidity(%), Outside Temp, Inside Temp, Latitude, Longitude"));
 }
-logFile.println();
-
-    }
-
-    logFile.close();
-    DBGL(F("SD: Logi zapisane."));
-    //sendLogEntry(now);
-  } else {
-    DBGL(F("SD: Blad"));
+void updateLogToSD() {
+  if (!sdPending) return;
+  // A long SD stall must not silently join records from two generations.
+  if (logGeneration != sdGeneration || logIndex > sdNext) {
+    ++sdErrors; sdLogFile.close(); sdPending = false; return;
   }
+  char line[20];
+  const LogEntry& record = logBuffer[sdNext];
+  snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d:%02d", sdYear, sdMonth,
+           record.day, record.hour, record.minute, record.second);
+  sdLogFile.print(line);
+  for (uint8_t j=0;j<CMD_SIZE;++j) {
+    sdLogFile.print(',');
+    if (j == 3 || (j >= 11 && j <= 14)) sdLogFile.print(record.data[j] / 10.0, 1);
+    else if (j == 1 || j == 7 || j == 4 || j == 10) sdLogFile.print(record.data[j] / 100.0, 1);
+    else if (j == 15 || j == 16) sdLogFile.print(decodeCoord(record.data[j], record.data[j+2]), 1);
+    else sdLogFile.print(record.data[j]);
+  }
+  sdLogFile.println();
+  if (sdLogFile.getWriteError()) { ++sdErrors; sdLogFile.close(); sdPending = false; return; }
+  if (++sdNext >= sdCount) { sdLogFile.close(); sdPending = false; }
 }

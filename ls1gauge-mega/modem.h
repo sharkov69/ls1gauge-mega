@@ -1,349 +1,235 @@
-bool sendAT(String cmd, const char* expected = "OK", uint16_t timeout = 1000) {
-  while (Serial1.available()) Serial1.read();
-  Serial1.println(cmd);
-  int16_t start = (uint16_t)(millis() & 0xFFFF);
-  uint8_t matchPos = 0;
-  size_t expectedLen = strlen(expected);
-  //String response = "";
-  delay(50);
-  while ((uint16_t)(millis() - start) < timeout) {
-    while (Serial1.available()) {
-      char c = Serial1.read();
-      if (c == expected[matchPos]) {
-        matchPos++;
-        if (matchPos == expectedLen) return true; 
-      } else {
-        matchPos = 0;
-             //if (c >= 32 && c <= 126) {
-      //response += c; }
-      //if (c == '\n') {
-      //response += ' '; }
-    }
+#pragma once
+#include <math.h>
+#include <stdlib.h>
+#ifdef __AVR__
+#include <avr/pgmspace.h>
+#endif
+
+// One UART owner, fixed buffers, bounded RX/TX work on each loop iteration.
+static const uint8_t MODEM_BUDGET = 24;
+static const char AT_OK[] PROGMEM = "OK";
+static const char LOGGER_URL[] PROGMEM = "AT+HTTPPARA=\"URL\",\"http://ls1.cyra.com.pl/logger.php\"";
+struct AtTransaction {
+  char command[80];
+  char line[112];
+  const char* expected = nullptr; // Flash string.
+  uint32_t since = 0, quietSince = 0;
+  uint16_t timeout = 0;
+  uint8_t pos = 0, length = 0, phase = 0;
+  bool busy = false, done = false, result = false;
+  bool matched = false, ok = false, overflow = false;
+} at;
+
+bool parseGpsLine(char* line) {
+  if (strncmp_P(line, PSTR("+CGPSINFO:"), 10) != 0) return false;
+  char* fields[9]; uint8_t count = 1;
+  fields[0] = line + 10;
+  for (char* p = fields[0]; *p && count < 9; ++p) {
+    if (*p == ',') { *p = 0; fields[count++] = p + 1; }
   }
+  if (count != 9) return false;
+  float coords[2];
+  for (uint8_t i = 0; i < 2; ++i) {
+    char* value = fields[i * 2];
+    while (*value == ' ') ++value;
+    if (!*value) return false;
+    char* end; double raw = strtod(value, &end);
+    const char direction = fields[i * 2 + 1][0];
+    if (*end || fields[i * 2 + 1][1] || !isfinite(raw) || raw < 0) return false;
+    if (i == 0 ? (direction != 'N' && direction != 'S') : (direction != 'E' && direction != 'W')) return false;
+    if (raw > (i == 0 ? 9000.0 : 18000.0)) return false;
+    const int degrees = (int)(raw / 100);
+    const double minutes = raw - degrees * 100;
+    if (minutes >= 60) return false;
+    coords[i] = (float)(degrees + minutes / 60.0);
+    if (direction == 'S' || direction == 'W') coords[i] = -coords[i];
   }
-  //response.trim();
-  //DBGL(response);
-  return false; 
+  encodeCoord(coords[0], cmd[LAT].wartosc, cmd[LAT].lastValue);
+  encodeCoord(coords[1], cmd[LON].wartosc, cmd[LON].lastValue);
+  return true;
 }
 
-enum NetCheckState {
-  NC_IDLE,
-  NC_SEND_CGATT,
-  NC_WAIT_CGATT,
-  NC_SEND_CREG,
-  NC_WAIT_CREG,
-  NC_DONE
-};
-
-NetCheckState netState = NC_IDLE;
-unsigned long netTimer = 0;
-String netResponse = "";
-bool cgattOK = false;
-bool cregOK = false;
-bool stopModemWatchdog = false;
-
-static const uint16_t NET_BUF_SIZE     = 192;
-static const uint16_t NET_READ_BUDGET  = 20; 
-
-void networkCheck_async() {
-  switch (netState) {
-    case NC_IDLE:
-      netResponse = "";
-      cgattOK = false;
-      cregOK = false;
-      netTimer = millis();
-      netState = NC_SEND_CGATT;
-      break;
-
-    case NC_SEND_CGATT:
-      Serial1.println("AT+CGATT?");
-      netResponse = "";
-      netTimer = millis();
-      netState = NC_WAIT_CGATT;
-      break;
-
-    case NC_WAIT_CGATT:
-      while (Serial1.available()) {
-        char c = Serial1.read();
-        netResponse += c;
-      }
-      if (millis() - netTimer > 2000) {
-        cgattOK = netResponse.indexOf("+CGATT: 1") >= 0;
-        netResponse = "";
-        netTimer = millis();
-        netState = NC_SEND_CREG;
-      }
-      break;
-
-    case NC_SEND_CREG:
-      Serial1.println("AT+CREG?");
-      netResponse = "";
-      netTimer = millis();
-      netState = NC_WAIT_CREG;
-      break;
-
-    case NC_WAIT_CREG:
-      while (Serial1.available()) {
-        char c = Serial1.read();
-        netResponse += c;
-      }
-      if (millis() - netTimer > 2000) {
-        cregOK = netResponse.indexOf(",1") >= 0 || netResponse.indexOf(",5") >= 0;
-        netState = NC_DONE;
-      }
-      break;
-
-    case NC_DONE:
-      break;
-  }
-}
-
-bool networkCheckIsDone() {
-  return netState == NC_DONE;
-}
-
-bool isNetworkReady() {
-  netState = NC_IDLE;
-  return cgattOK && cregOK;
-}
-
-uint16_t netLastCheck = 0;
+enum ModemOwner : uint8_t { OWNER_INIT, OWNER_IDLE, OWNER_NET_ATTACH, OWNER_NET_REG, OWNER_GPS, OWNER_HTTP, OWNER_RECOVERY };
+ModemOwner modemOwner = OWNER_INIT;
+bool blinkState = false, modemOnline = false;
+bool initReady = false, gpsRequested = false;
+uint8_t stepIdx = 0, tries = 0;
+uint32_t netLastCheck = 0, nextNetCheck = 0;
+uint32_t recoveryQuietSince = 0;
 const uint16_t NET_TIMEOUT = 20000;
+void modemHttpTick();
+bool modemHttpPending();
+void cancelLogSend();
 
-float convertToDecimal(const char* nmea) {
-  float raw = atof(nmea);
-  int deg = int(raw / 100);
-  float min = raw - deg * 100;
-  return deg + min / 60.0;
+void beginAT(const char* flashCommand, const char* flashExpected = AT_OK, uint16_t timeout = 2000) {
+  if (at.busy || at.done) return;
+  if (flashCommand) {
+    size_t n = strlen_P(flashCommand);
+    if (n >= sizeof(at.command)) return;
+    memcpy_P(at.command, flashCommand, n + 1);
+  }
+  at.expected = flashExpected; at.timeout = timeout;
+  at.pos = 0; at.length = 0; at.phase = 0;
+  at.busy = true; at.result = at.matched = at.ok = at.overflow = false;
+  at.since = millis(); at.quietSince = at.since;
 }
 
-void getGPSInfo() {
-  Serial1.println("AT+CGPSINFO");
+void finishAT(bool result) {
+  at.result = result;
+  at.phase = 3; // Drain trailing lines before handing the port to another operation.
+  at.since = at.quietSince = millis();
+}
 
-  unsigned long start = millis();
-  char gpsLine[75];
-  uint8_t gpsLen = 0;
-  uint8_t gpsCommas = 0;
-  while (millis() - start < 1000) {
-  if (Serial1.available()) {
-    char c = Serial1.read();
-    if (gpsLen < sizeof(gpsLine) - 1) {
-      gpsLine[gpsLen++] = c;
-      if (c == ',') gpsCommas++;
-      if (gpsCommas >= 8) break;
+void pumpAT() {
+  if (!at.busy) return;
+  const uint32_t now = millis();
+  if (at.phase == 0 || at.phase == 3) {
+    uint8_t budget = MODEM_BUDGET;
+    while (budget-- && Serial1.available()) { Serial1.read(); at.quietSince = now; }
+    if (at.phase == 3) {
+      if ((uint32_t)(now - at.quietSince) >= 50 || (uint32_t)(now - at.since) >= 250) { at.busy = false; at.done = true; }
+      return;
     }
-  }
-  }
-
-  gpsLine[gpsLen] = '\0';
-  //DBGL(gpsLine);
-  char* infoPtr = strstr(gpsLine, "+CGPSINFO:");
-  if (infoPtr) {
-    infoPtr += strlen("+CGPSINFO:");
-    while (*infoPtr == ' ') infoPtr++;  
-
-  char* fields[9];
-  uint8_t count = 0;
-  fields[0] = infoPtr;
-
-  for (int i = 0; i < gpsLen && count < 8; i++) {
-    if (gpsLine[i] == ',') {
-      gpsLine[i] = '\0';
-      fields[++count] = &gpsLine[i + 1];
+    if (Serial1.available()) {
+      if ((uint32_t)(now - at.since) >= at.timeout) finishAT(false);
+      return;
     }
+    at.phase = 1;
   }
-
-  float lat = convertToDecimal(fields[0]);  // np. "5209.512719"
-  if (fields[1][0] == 'S') lat = -lat;
-  float lon = convertToDecimal(fields[2]);
-  if (fields[3][0] == 'W') lon = -lon;
-  //float alt = atof(fields[6]);
-  float spd = atof(fields[7]) * 1.852;
-
-  /*int day = (fields[4][0] - '0') * 10 + (fields[4][1] - '0');
-  int month = (fields[4][2] - '0') * 10 + (fields[4][3] - '0');
-  int year = 2000 + (fields[4][4] - '0') * 10 + (fields[4][5] - '0');
-
-  int hour = (fields[5][0] - '0') * 10 + (fields[5][1] - '0');
-  int minute = (fields[5][2] - '0') * 10 + (fields[5][3] - '0');
-  int second = (fields[5][4] - '0') * 10 + (fields[5][5] - '0');
-
-  // Prosty Zeller's Congruence do wyliczenia dnia tygodnia (0=niedziela)
-  int y = (month < 3) ? year - 1 : year;
-  int m = (month < 3) ? month + 12 : month;
-  int K = y % 100;
-  int J = y / 100;
-  int f = (day + 13 * (m + 1) / 5 + K + K/4 + J/4 + 5*J) % 7;
-  int weekday = (f + 6) % 7;  // teraz 0=niedziela, 1=poniedziałek, ..., 6=sobota
-
-  // Sprawdź czas letni w Polsce
-  bool lato = czyLetni(day, month, weekday);
-  int offset = lato ? 2 : 1;
-
-  hour += offset;
-  if (hour >= 24) hour -= 24;
-
-  // Sformatuj wszystko
-  char dataBuf[11];
-  char czasBuf[9];
-  sprintf(dataBuf, "%04d-%02d-%02d", year, month, day);
-  sprintf(czasBuf, "%02d:%02d:%02d", hour, minute, second);
-
-  DBG("Data: "); DBG(dataBuf);
-  DBG(", Czas lokalny (PL): "); DBGL(czasBuf); */
-  //DBG(F("Wspolrzedne: ")); DBG2(lat, 6);
-  //DBG(" "); DBGL2(lon, 6);
-  encodeCoord(lat, cmd[LAT].wartosc, cmd[LAT].lastValue);
-  encodeCoord(lon, cmd[LON].wartosc, cmd[LON].lastValue);
-  //DBG("Wysokość: "); DBGL2(alt, 1);
-  //DBG(F("Predkosc: ")); DBGL2(spd,1);
-}
-}
-
-bool blinkState = false;
-bool modemOnline = false;
-
-enum StepMode : uint8_t { STEP_SEND=0, STEP_CHECK_SKIP_NEXT, STEP_NO_CHECK };
-
-struct Step {
-  const char* cmd;
-  const char* expect;   
-  uint16_t timeout_ms;    
-  StepMode mode;
-  Step(const char* c, const char* e = "OK", StepMode m = STEP_SEND, uint16_t t = 1000)
-    : cmd(c), expect(e), timeout_ms(t), mode(m) {}
-};
-
-static const Step STEPS[] = {
-  { "AT"},
-  { "AT+CPIN?", "READY"},
-  { "AT+CNMP=13"},
-  { "AT+CGDCONT=1,\"IP\",\"internet\""},
-  { "AT+CREG?", "+CREG: 0,1"},
-  { "ATE0" },
-  { "AT+NETOPEN?", "+NETOPEN: 1", STEP_CHECK_SKIP_NEXT}, 
-  { "AT+NETOPEN"}, 
-  { "AT+IPADDR" }, 
-  { "AT+HTTPTERM", "ERROR", STEP_NO_CHECK},
-  { "AT+HTTPINIT" },
-  { "AT+HTTPPARA=\"CID\",1" },
-  { "AT+HTTPPARA=\"URL\",\"http://ls1.cyra.com.pl/logger.php\"" },
-  { "AT+HTTPACTION=0", "+HTTPACTION: 0,403"}, // czekamy na raport
-  { "AT+HTTPTERM" },
-  { "AT+CGPS?", "+CGPS: 1,1", STEP_CHECK_SKIP_NEXT },
-  { "AT+CGPS=1" },
-};
-
-enum InitRunState : uint8_t { INIT_IDLE=0, INIT_WAITING, INIT_DONE, INIT_FAILED };
-
-static uint8_t  stepIdx = 0, tries = 0, matchPos = 0; //,tries2 = 0;
-static uint16_t tStart = 0;
-static InitRunState initState = INIT_IDLE;
-
-static inline bool timedOut(uint16_t since, uint16_t ms) {
-  return (uint16_t)((uint16_t)(millis() & 0xFFFF) - since) >= ms;
-}
-
-static bool matchExpected(const char* expect, uint8_t &pos){
-  while (Serial1.available()){
-    char c = Serial1.read();
-    if (c=='\n'||c=='\r') continue;
-    if (c == expect[pos]) {
-      pos++;
-      if (expect[pos]=='\0') return true;
-    } else {
-      pos = (c == expect[0]) ? 1 : 0; // proste dosuwanie
+  if (at.phase == 1) {
+    uint8_t budget = MODEM_BUDGET;
+    const uint8_t n = (uint8_t)strlen(at.command);
+    while (budget-- && Serial1.availableForWrite() > 0 && at.pos < n + 2) {
+      Serial1.write((uint8_t)(at.pos < n ? at.command[at.pos] : at.pos == n ? '\r' : '\n'));
+      ++at.pos;
     }
+    if (at.pos == n + 2) { at.phase = 2; at.since = now; }
+    else if ((uint32_t)(now - at.since) >= at.timeout) finishAT(false);
+    return;
   }
-  return false;
+  uint8_t budget = MODEM_BUDGET;
+  while (budget-- && Serial1.available()) {
+    char c = (char)Serial1.read();
+    if (c == '\r') continue;
+    if (c != '\n') {
+      if ((size_t)at.length + 1 < sizeof(at.line)) at.line[at.length++] = c;
+      else at.overflow = true;
+      continue;
+    }
+    at.line[at.length] = 0;
+    if (!at.overflow && at.length) {
+      if (strcmp_P(at.line, PSTR("ERROR")) == 0 || strncmp_P(at.line, PSTR("+CME ERROR"), 10) == 0) {
+        finishAT(false); return;
+      }
+      if (strcmp_P(at.line, PSTR("OK")) == 0) at.ok = true;
+      if (modemOwner == OWNER_GPS && strncmp_P(at.line, PSTR("+CGPSINFO:"), 10) == 0) {
+        parseGpsLine(at.line); // Empty/no-fix leaves the last position intact.
+        at.matched = true;
+      } else if (strcmp_P(at.line, at.expected) == 0 ||
+                 (strncmp_P(at.line, PSTR("+HTTPACTION:"), 12) == 0 &&
+                  strncmp_P(at.line, at.expected, strlen_P(at.expected)) == 0 &&
+                  at.line[strlen_P(at.expected)] == ',') ||
+                 (strcmp_P(at.expected, PSTR("READY")) == 0 && strcmp_P(at.line, PSTR("+CPIN: READY")) == 0)) {
+        at.matched = true;
+      }
+      if (modemOwner == OWNER_NET_REG &&
+          (strcmp_P(at.line, PSTR("+CREG: 0,1")) == 0 || strcmp_P(at.line, PSTR("+CREG: 0,5")) == 0)) at.matched = true;
+      if (at.matched && (at.ok || strcmp_P(at.expected, PSTR("DOWNLOAD")) == 0)) {
+        finishAT(true); return;
+      }
+    }
+    at.length = 0; at.overflow = false;
+  }
+  if ((uint32_t)(now - at.since) >= at.timeout) finishAT(false);
+}
+
+// Definitions and strings stay in Flash; no initialization-time heap allocations.
+struct InitStep { const char* command; const char* expected; uint8_t mode; };
+// mode: 0 required, 1 successful query skips next command, 2 optional.
+InitStep initStep(uint8_t index) {
+  switch (index) {
+    case 0: return {PSTR("AT"), PSTR("OK"), 0};
+    case 1: return {PSTR("AT+CPIN?"), PSTR("READY"), 0};
+    case 2: return {PSTR("AT+CNMP=13"), PSTR("OK"), 0};
+    case 3: return {PSTR("AT+CGDCONT=1,\"IP\",\"internet\""), PSTR("OK"), 0};
+    case 4: return {PSTR("AT+CREG?"), PSTR("+CREG: 0,1"), 0};
+    case 5: return {PSTR("ATE0"), PSTR("OK"), 0};
+    case 6: return {PSTR("AT+NETOPEN?"), PSTR("+NETOPEN: 1"), 1};
+    case 7: return {PSTR("AT+NETOPEN"), PSTR("OK"), 0};
+    case 8: return {PSTR("AT+IPADDR"), PSTR("OK"), 0};
+    case 9: return {PSTR("AT+HTTPTERM"), PSTR("OK"), 2};
+    case 10: return {PSTR("AT+HTTPINIT"), PSTR("OK"), 0};
+    case 11: return {PSTR("AT+HTTPPARA=\"CID\",1"), PSTR("OK"), 0};
+    case 12: return {LOGGER_URL, PSTR("OK"), 0};
+    case 13: return {PSTR("AT+HTTPACTION=0"), PSTR("+HTTPACTION: 0,403"), 0};
+    case 14: return {PSTR("AT+HTTPTERM"), PSTR("OK"), 0};
+    case 15: return {PSTR("AT+CGPS?"), PSTR("+CGPS: 1,1"), 1};
+    default: return {PSTR("AT+CGPS=1"), PSTR("OK"), 0};
+  }
 }
 
 void modemInitStart() {
-  stepIdx = 0;
-  tries = 0;
-  matchPos = 0;
-  initState = INIT_IDLE;
+  at.busy = at.done = false;
+  stepIdx = tries = 0; initReady = modemOnline = false;
+  gpsRequested = false; modemOwner = OWNER_INIT;
 }
-
-bool modemInitDone() {
-  return initState == INIT_DONE;
+bool modemInitDone() { return initReady; }
+void getGPSInfo() { gpsRequested = true; }
+// A GPS line exceeds the Mega core's 63-byte usable RX ring. While awaiting it,
+// service RX/VPW before starting another slow TFT/SD/DHT operation or VPW TX.
+bool modemNeedsFastService() {
+  return modemOwner == OWNER_GPS && at.busy && at.phase < 3;
+}
+void recoverModem() {
+  cancelLogSend();
+  at.busy = at.done = false;
+  initReady = modemOnline = false;
+  modemOwner = OWNER_RECOVERY;
+  recoveryQuietSince = millis();
 }
 
 void modemInitTick() {
-  if (initState == INIT_DONE || initState == INIT_FAILED) return;
-
-  const Step &st = STEPS[stepIdx];
-
-  switch (initState){
-    case INIT_IDLE: {
-      while (Serial1.available()) Serial1.read();
-
-      Serial1.println(st.cmd);
-      tStart   = (uint16_t)(millis() & 0xFFFF);
-      matchPos = 0;
-      initState= INIT_WAITING;
-      DBG(F("TX> ")); DBGL(st.cmd);
-    } break;
-
-    case INIT_WAITING: {
-      if (matchExpected(st.expect, matchPos)) {
-        DBG(F("RX< ")); DBGL(st.expect);
-        tries=0; matchPos=0;
-        stepIdx += (st.mode == STEP_CHECK_SKIP_NEXT) ? 2 : 1;
-        if (stepIdx >= (sizeof(STEPS)/sizeof(STEPS[0]))) {
-          modemOnline = true;
-          initState = INIT_DONE;
-        } else {
-          initState = INIT_IDLE;
-        }
-        return;
-      }
-
-      if (timedOut(tStart, st.timeout_ms)) {
-        tries++;
-        DBG(F("TIMEOUT ")); DBG(tries); DBGL(F("/5"));
-      if (st.mode == STEP_CHECK_SKIP_NEXT || st.mode == STEP_NO_CHECK) {
-    stepIdx += 1;
-    tries = 0;
-    matchPos = 0;
-    if (stepIdx >= (sizeof(STEPS)/sizeof(STEPS[0]))) {
-      modemOnline = true;
-      initState = INIT_DONE;
-      netLastCheck = czas;
-    } else {
-      initState = INIT_IDLE;
-    }
-  } else {
-    if (tries >= 5) {
-      
-      /*if (stepIdx == 0)
-      {
-        tries2++;
-        if (tries2 == 5)
-      {
-        tries2 = 0;
-        DBGL(F("Modem: offline... cold reset"));
-        wdt_reset();
-        digitalWrite(12, LOW);
-        delay(3000);
-        wdt_reset();
-        digitalWrite(12, HIGH);
-        delay(1000);
-        digitalWrite(12, LOW);
-        delay(500);  
-        digitalWrite(12, HIGH);
-        wdt_reset();       
-      }
-      }*/
-      stepIdx = 0;
-      tries = 0;
-      matchPos = 0;
-      initState = INIT_IDLE;
-    } else {
-      initState = INIT_IDLE; // retry tego samego kroku
-    }
+  if (modemOwner == OWNER_RECOVERY) {
+    uint8_t budget = MODEM_BUDGET;
+    while (budget-- && Serial1.available()) { Serial1.read(); recoveryQuietSince = millis(); }
+    // HTTPDATA advertises a 5000 ms input window. Never send AT command bytes
+    // into a possibly active payload window; late DOWNLOAD restarts this guard.
+    if ((uint32_t)(millis() - recoveryQuietSince) >= 5500) modemInitStart();
+    return;
   }
+  pumpAT();
+  if (modemOwner == OWNER_INIT) {
+    InitStep st = initStep(stepIdx);
+    if (at.done) {
+      bool success = at.result; at.done = false;
+      if (success || st.mode != 0) {
+        stepIdx += (success && st.mode == 1) ? 2 : 1; tries = 0;
+      } else if (++tries >= 5) { stepIdx = tries = 0; }
+      if (stepIdx >= 17) {
+        initReady = modemOnline = true; modemOwner = OWNER_IDLE;
+        netLastCheck = millis(); nextNetCheck = millis() + 4000;
       }
-    } break;
+    } else if (!at.busy) beginAT(st.command, st.expected, 2000);
+    return;
+  }
+  if (modemOwner == OWNER_HTTP) { modemHttpTick(); return; }
+  if (modemOwner == OWNER_GPS || modemOwner == OWNER_NET_ATTACH || modemOwner == OWNER_NET_REG) {
+    if (!at.done) return;
+    bool success = at.result; at.done = false;
+    if (modemOwner == OWNER_NET_ATTACH && success) {
+      modemOwner = OWNER_NET_REG; beginAT(PSTR("AT+CREG?"), PSTR("+CREG: 0,1")); return;
+    }
+    if (modemOwner != OWNER_GPS) {
+      modemOnline = success && modemOwner == OWNER_NET_REG;
+      if (modemOnline) netLastCheck = millis();
+      else if ((uint32_t)(millis() - netLastCheck) >= NET_TIMEOUT) { cancelLogSend(); modemInitStart(); return; }
+      nextNetCheck = millis() + 4000;
+    }
+    modemOwner = OWNER_IDLE;
+  }
+  if (modemHttpPending()) { modemOwner = OWNER_HTTP; modemHttpTick(); }
+  else if (gpsRequested) { gpsRequested = false; modemOwner = OWNER_GPS; beginAT(PSTR("AT+CGPSINFO"), PSTR("+CGPSINFO:"), 1000); }
+  else if ((int32_t)(millis() - nextNetCheck) >= 0) {
+    modemOwner = OWNER_NET_ATTACH; beginAT(PSTR("AT+CGATT?"), PSTR("+CGATT: 1"));
   }
 }

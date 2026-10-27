@@ -1,5 +1,6 @@
 #define TX 5
 #define RX 3
+#include "vpw_reply.h"
 #ifdef DEBUGVPW
 void handleError(J1850_Operations op, J1850_ERRORS err);
 #endif
@@ -113,7 +114,7 @@ uint16_t czas = 0;
 volatile uint16_t lastRxEnd = 0; 
 
 
-#define O2SREDNIA 10
+#define O2SREDNIA 4 // Wideband AFR: shorter moving average for both banks.
 struct objO2 {
   int16_t o2[O2SREDNIA];
   uint8_t id;
@@ -160,8 +161,8 @@ void send(){
     }
   }
   if (id != 0xFF && (uint16_t)(czas - lastSend) >= pause && (uint16_t)(czas - lastRxEnd) >= guardRx) {
-    vpw.send((uint8_t*)cmd[id].data, cmd[id].dl, 10);
-    counter2++;  
+    bool sent = vpw.send((uint8_t*)cmd[id].data, cmd[id].dl, 1);
+    if (sent) counter2++;
     #ifdef TXRX
     DBG(F("TX: "));
     for (uint8_t j = 0; j < cmd[id].dl; j++) {
@@ -172,7 +173,7 @@ void send(){
     DBGL();
     #endif
     czas = (uint16_t)(millis() & 0xFFFF);
-    cmd[id].lastCzas = czas;
+    if (sent) cmd[id].lastCzas = czas;
     lastSend = czas;
   }
 }
@@ -180,9 +181,9 @@ void send(){
 void read(){
     static uint8_t buff[BS];
   uint8_t dataSize;
-  while (dataSize = vpw.tryGetReceivedFrame(buff)) {
+  while ((dataSize = vpw.tryGetReceivedFrame(buff)) != 0) {
   uint8_t *pData = buff;
-  if (dataSize >= 6) {  
+  if (validGaugeReply(pData, dataSize)) {
     counter++;  
     #ifdef TXRX     
     DBG(F("RX:"));
