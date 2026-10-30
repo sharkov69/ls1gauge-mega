@@ -1,5 +1,12 @@
 #include "j1850vpw-wc.h"
 #include <stdlib.h>
+#ifdef __AVR__
+#include <util/atomic.h>
+#define VPW_ATOMIC ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
+#else
+// Host tests are single-threaded. AVR preserves SREG even when called from ISR.
+#define VPW_ATOMIC for (bool once = true; once; once = false)
+#endif
 
 #define RX_SOF_MIN (163)
 #define RX_SOF_MAX (239) //u mnie 220
@@ -35,6 +42,7 @@ Storage::Storage()
 
 void Storage::push(uint8_t *buff, uint8_t size)
 {
+    if (!buff || size == 0 || size > BS) return;
     _last = (_last + 1) & STORAGE_MASK;
 
     if (_first == STORAGE_RESET)
@@ -44,37 +52,26 @@ void Storage::push(uint8_t *buff, uint8_t size)
     else if (_first == _last)
     {
         _first = (_first + 1) & STORAGE_MASK;
+        ++dropped;
     }
 
-    memcpy(_items[_last].content, buff, BS);
+    memcpy(_items[_last].content, buff, size);
     _items[_last].size = size;
 }
 
 uint8_t Storage::tryPopItem(uint8_t *pBuff)
 {
-    StorageItem *ptr;
-
-    if (_first == STORAGE_RESET || _last == STORAGE_RESET)
-    {
-        return 0;
+    uint8_t size = 0;
+    VPW_ATOMIC {
+        if (_first != STORAGE_RESET) {
+            size = _items[_first].size;
+            memcpy(pBuff, _items[_first].content, size);
+            if (_first == _last) _first = _last = STORAGE_RESET;
+            else _first = (_first + 1) & STORAGE_MASK;
+        }
     }
-
-    ptr = &_items[_first];
-
-    if (_first == _last)
-    {
-        _first = _last = STORAGE_RESET;
-    }
-    else
-    {
-        _first = (_first + 1) & STORAGE_MASK;
-    }
-
-    memcpy(pBuff, ptr->content, ptr->size);
-
-    return ptr->size;
+    return size;
 }
-
 Pin::Pin() : _pin(255) {}
 
 Pin::Pin(uint8_t pin, uint8_t mode) : _pin(pin) {
@@ -88,7 +85,7 @@ void Pin::write(uint8_t val) {
 }
 
 uint8_t Pin::read() {
-    return digitalRead(_pin);
+    return (uint8_t)digitalRead(_pin);
 }
 
 uint8_t crc(uint8_t *msg_buf, int8_t nbytes)
@@ -139,124 +136,42 @@ J1850_ERRORS J1850VPW::handleErrorsInternal(J1850_Operations op, J1850_ERRORS er
 
 void J1850VPW::onRxChanged()
 {
-    uint8_t curr = __rxPin.read();
-	
-	_currState = curr;
-    curr = !curr;
-
-    unsigned long  now = micros();
-    unsigned long  diff;
-
-    if (now < _lastChange)
-    {
-        // overflow occured
-        diff = now + ((unsigned long)-1L - _lastChange);
-    }
-    else
-    {
-        diff = now - _lastChange;
-    }
-
-    if (diff < RX_SHORT_IGNORE) //We filter out some noise for very short pulses around the transition
-    {
-        return;
-    }
-
+    const uint8_t curr = __rxPin.read();
+    const uint32_t now = micros();
+    const uint32_t diff = now - _lastChange;
+    if (diff < RX_SHORT_IGNORE) return;
     _lastChange = now;
-
-    if (diff < RX_SHORT_MIN)
-    {
-        // too short to be a valid pulse. Data error
-        _sofRead = false;
-		#ifdef DEBUGVPW 
-        handleErrorsInternal(J1850_Read, J1850_ERR_PULSE_TOO_SHORT);
-		#endif 
-        return;
-    }
-
-    if (!_sofRead)
-    {
-        if (_sofRead = (curr == LOW && IS_BETWEEN(diff, RX_SOF_MIN, RX_SOF_MAX)))
-        {
-            _byte = 0;
-            _bit = 0;
-            msg_buf = _buff;
-            *msg_buf = 0;
+    _currState = curr;
+    const uint8_t previous = !curr;
+    if (!_sofRead) {
+        if (previous == LOW && IS_BETWEEN(diff, RX_SOF_MIN, RX_SOF_MAX)) {
+            _sofRead = true; _byte = 0; _bit = 0; _buff[0] = 0;
             _IFRDetected = false;
         }
-        else
-        {
-        }
         return;
     }
-
-    *msg_buf <<= 1;
-    if (curr == HIGH)
-    {
-        if (diff > RX_EOF_MIN)
-        {
-            // data ended - copy package to buffer
-            _sofRead = false;
-
-            if (!_IFRDetected)
-            {
-                onFrameRead();
-		    
-            }
-            return;
-        }
-        if (!_IFRDetected && IS_BETWEEN(diff, RX_EOD_MIN, RX_EOD_MAX))
-        {
-            // data ended and IFR detected - set flag to ignore the incoming IFR and flag error
-            _IFRDetected = true;
-			#ifdef DEBUGVPW 
-            handleErrorsInternal(J1850_Read, J1850_ERR_IFR_RX_NOT_SUPPORTED);
-			#endif 
-            onFrameRead();
-            return;
-        }
-        if (!_IFRDetected && IS_BETWEEN(diff, RX_LONG_MIN, RX_LONG_MAX))
-        {
-            *msg_buf |= 1;
-        }
-    }
-    else if (!_IFRDetected)
-    {
-        if (diff <= RX_SHORT_MAX)
-        {
-            *msg_buf |= 1;
-        }
-    }
-    if(!_IFRDetected)
-    {
-        _bit++;
-        if (_bit == 8)
-        {
-            _byte++;
-            msg_buf++;
-            *msg_buf = 0;
-            _bit = 0;
-		// poczatek
-        if (_byte == 1)
-        {
-            if (_buff[0] != 0x6C && _buff[0] != 0x48)
-            {
-                _sofRead = false;
-                return;
-            }
-        } //koniec
-        }
-    }    
-    if (_byte == BS)
-    {
+    // End of data must be checked before shifting or indexing the next byte.
+    if (previous == HIGH && diff >= RX_EOD_MIN) {
         _sofRead = false;
-        if (!_IFRDetected)
-        {
-            onFrameRead();
+        if (_bit == 0) onFrameRead();
+        return;
+    }
+    if (diff < RX_SHORT_MIN || diff > RX_LONG_MAX || _byte >= BS) {
+        _sofRead = false;
+        return;
+    }
+    _buff[_byte] = (uint8_t)((_buff[_byte] << 1) |
+        (uint8_t)(previous == HIGH ? diff >= RX_LONG_MIN : diff <= RX_SHORT_MAX));
+    if (++_bit == 8) {
+        _bit = 0;
+        ++_byte;
+        if (_byte == 1 && _buff[0] != 0x6C && _buff[0] != 0x48) {
+            _sofRead = false;
+            return;
         }
+        if (_byte < BS) _buff[_byte] = 0;
     }
 }
-
 J1850VPW::J1850VPW() 
 : RX(-1)
 , __rxPin(Pin())
@@ -266,7 +181,7 @@ J1850VPW::J1850VPW()
 , _currState(LOW)
 , _bit(0)
 , _byte(0)
-, msg_buf(NULL)
+
 , _storage(Storage())
 #ifdef DEBUGVPW 
 , __errHandler(NULL)
@@ -300,11 +215,13 @@ J1850VPW* J1850VPW::init(uint8_t rxPin)
 }
 
 // NB! Performance critical!!! Do not split
-void J1850VPW::send(uint8_t *pData, uint8_t nbytes, int16_t timeoutMs /*= -1*/)
+bool J1850VPW::send(uint8_t *pData, uint8_t nbytes, int16_t timeoutMs /*= -1*/)
 {
 	#ifdef DEBUGVPW 
     J1850_ERRORS result = J1850_OK;
 	#endif 
+    if (!pData || nbytes == 0 || nbytes >= BS) return false;
+    bool sent = false;
     static uint8_t buff[BS];
     memcpy(buff, pData, nbytes);
     buff[nbytes] = crc(buff, nbytes);
@@ -318,7 +235,7 @@ void J1850VPW::send(uint8_t *pData, uint8_t nbytes, int16_t timeoutMs /*= -1*/)
     {
         now = micros();
         unsigned long  start = now;
-        timeoutMs *= 1000; // convert to microseconds
+        const uint32_t timeoutUs = (uint32_t)timeoutMs * 1000UL;
         while (micros() - now < TX_EOF)
         {
             if (__rxPin.read() == LOW)
@@ -326,12 +243,14 @@ void J1850VPW::send(uint8_t *pData, uint8_t nbytes, int16_t timeoutMs /*= -1*/)
                 now = micros();
             }
 
-            if (micros() - start > timeoutMs)
+            if (micros() - start > timeoutUs)
             {
 				#ifdef DEBUGVPW 
                 result = J1850_ERR_BUS_IS_BUSY;
+				handleErrorsInternal(J1850_Write, result);
 				#endif 
-                goto stop;
+                // RX is still attached: preserve the frame currently arriving.
+                return false;
             }
         }
     }
@@ -403,11 +322,15 @@ void J1850VPW::send(uint8_t *pData, uint8_t nbytes, int16_t timeoutMs /*= -1*/)
         }
     }
 
+    sent = true;
 stop:
+    __txPin.write(HIGH);
+    _sofRead = false;
     attachInterrupt(digitalPinToInterrupt(__rxPin._pin), &J1850VPWFriend::__handleRnChange, CHANGE);
 	#ifdef DEBUGVPW 
     handleErrorsInternal(J1850_Write, result);
 	#endif
+    return sent;
 }
 #ifdef DEBUGVPW 
 J1850VPW* J1850VPW::onError(onErrorHandler errHandler)
@@ -419,7 +342,14 @@ J1850VPW* J1850VPW::onError(onErrorHandler errHandler)
 int8_t J1850VPW::tryGetReceivedFrame(uint8_t *pBuff, bool justValid /*= true*/)
 {
     uint8_t size;
-    bool crcOK = true;
+    // Complete an isolated frame on idle; no following SOF is required.
+    VPW_ATOMIC {
+        if (_sofRead && __rxPin.read() == HIGH &&
+            (uint32_t)(micros() - _lastChange) >= RX_EOF_MIN) {
+            _sofRead = false;
+            if (_bit == 0) onFrameRead();
+        }
+    }
 
     while (true)
     {
@@ -428,9 +358,10 @@ int8_t J1850VPW::tryGetReceivedFrame(uint8_t *pBuff, bool justValid /*= true*/)
         {
             return 0;
         }
-        if (crc(pBuff, size - 1) != pBuff[size - 1])
+        const bool crcOK = crc(pBuff, size - 1) == pBuff[size - 1];
+        if (!crcOK)
         {
-            crcOK = false;
+            ++crcErrors;
 			#ifdef DEBUGVPW 
             handleErrorsInternal(J1850_Read, J1850_ERR_CRC);
 			#endif
@@ -454,4 +385,10 @@ void J1850VPW::onFrameRead()
 
         _storage.push(_buff, _byte);
  
+}
+
+uint16_t J1850VPW::droppedFrames() const {
+    uint16_t value = 0;
+    VPW_ATOMIC { value = _storage.dropped; }
+    return value;
 }

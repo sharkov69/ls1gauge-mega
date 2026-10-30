@@ -1,264 +1,97 @@
-struct AsyncAT {
-  const char* cmd = nullptr;
-  const char* expected = nullptr;
-  uint8_t expectedLen = 0;
-  uint8_t matchPos = 0;
-  uint16_t timeout = 1000;
-  uint16_t start = 0;
-  bool sent = false;
-  bool busy = false;
-  bool done = false;
-  bool result = false;
-} at;
-
-void startAT(const char* cmd, const char* expected = "OK", uint16_t timeout = 2000) {
-  if (at.busy || at.done) return;
-  at.cmd = cmd;
-  at.expected = expected;
-  at.expectedLen = strlen(expected);
-  at.timeout = timeout;
-  at.matchPos = 0;
-  at.sent = false;
-  at.start = 0;
-  at.busy = true;
-  at.done = false;
-  at.result = false;
-}
-
-void updateAT() {
-  //DBG(F("AT> ")); DBGL(at.cmd);
-  if (!at.busy || at.done) return;
-  if (!at.sent) {
-    while (Serial1.available()) Serial1.read(); 
-    Serial1.println(at.cmd);
-    at.sent = true;
-    delay(50);
-    at.start = (uint16_t)(millis() & 0xFFFF);
-    return;
-  }
-  while (Serial1.available()) {
-    char c = Serial1.read();
-    //Serial.print(F("")); Serial.write(c);
-    if (c == at.expected[at.matchPos]) {
-      at.matchPos++;
-      if (at.matchPos == at.expectedLen) {
-        at.done = true;
-        at.result = true;
-        at.busy = false;
-        return;
-      }
-    } else {
-      at.matchPos = 0;
-    }
-  }
-  if ((uint16_t)((millis() & 0xFFFF) - at.start) > at.timeout) {
-    at.done = true;
-    at.result = false;
-    at.busy = false;
-  }
-}
-
-enum SendLogState {
-  IDLE,
-  INIT,
-  SEND_PARAMS,
-  SEND_DATA_CMD,
-  SEND_DATA_BODY,
-  WAIT,
-  HTTP_ACTION,
-  PART2,
-  DONE
-};
-
-SendLogState logState = IDLE;
-uint8_t retryCount = 0;
-DateTime logNow;
-uint16_t wait = 0;
-uint8_t logPart = 0;
-
-constexpr uint8_t MAX_RETRY = 5;
-
-size_t postSize = 0;
-#define LOG_PART LOG_ENTRIES/2
-#define POSTBIN_SIZE (12 + 4 + sizeof(logBuffer) / 2 + 2)
+#pragma once
+// One immutable half-buffer per HTTP request, same binary format as before.
+#define LOG_PART (LOG_ENTRIES / 2)
+#define POSTBIN_SIZE (TOKEN_LENGTH + 3 + sizeof(LogEntry) * LOG_PART + 2)
 uint8_t postBin[POSTBIN_SIZE];
+uint16_t postSize = 0, postOffset = 0;
+uint8_t logPart = 0, retryCount = 0;
+uint32_t postSince = 0;
+uint16_t uploadGeneration = 0;
+DateTime logNow;
+enum SendLogState : uint8_t { IDLE, INIT, SEND_CID, SEND_URL, SEND_CONTENT, SEND_DATA_CMD, SEND_DATA_BODY, WAIT_BODY, HTTP_ACTION, PART2, DONE };
+SendLogState logState = IDLE;
+uint16_t logUploadErrors = 0, skippedUploads = 0;
 
-uint16_t crc16_ccitt(const uint8_t* data, size_t len, uint16_t crc = 0xFFFF) {
-  for (size_t i = 0; i < len; i++) {
-    crc ^= (uint16_t)data[i] << 8;
-    for (uint8_t j = 0; j < 8; j++) {
-      if (crc & 0x8000)
-        crc = (crc << 1) ^ 0x1021;
-      else
-        crc <<= 1;
-    }
+uint16_t crc16_ccitt(const uint8_t* data, size_t len, uint16_t value = 0xFFFF) {
+  while (len--) {
+    value ^= (uint16_t)*data++ << 8;
+    for (uint8_t i=0;i<8;++i) value = (value & 0x8000) ? (uint16_t)((value << 1) ^ 0x1021) : (uint16_t)(value << 1);
   }
-  return crc;
+  return value;
 }
-
 void buildBinaryPayload(uint8_t part) {
   postSize = 0;
-  memcpy(postBin, token, TOKEN_LENGTH);
-  postSize += TOKEN_LENGTH;
+  memcpy(postBin, token, TOKEN_LENGTH); postSize += TOKEN_LENGTH;
   uint16_t year = logNow.year();
-  postBin[postSize++] = year & 0xFF;
-  postBin[postSize++] = year >> 8;
+  postBin[postSize++] = (uint8_t)year; postBin[postSize++] = (uint8_t)(year >> 8);
   postBin[postSize++] = logNow.month();
-  memcpy(postBin + postSize, &logBuffer[part * LOG_PART ], sizeof(logBuffer) / 2);
-  postSize += sizeof(logBuffer) / 2;
-  uint16_t crc = crc16_ccitt(postBin, postSize);
-  postBin[postSize++] = crc & 0xFF;     // LSB
-  postBin[postSize++] = crc >> 8;       // MSB
+  memcpy(postBin + postSize, &logBuffer[part * LOG_PART], sizeof(LogEntry) * LOG_PART);
+  postSize += sizeof(LogEntry) * LOG_PART;
+  uint16_t value = crc16_ccitt(postBin, postSize);
+  postBin[postSize++] = (uint8_t)value; postBin[postSize++] = (uint8_t)(value >> 8);
 }
-
-bool handleATstate(const char* cmd,
-                   SendLogState onSuccess,
-                   SendLogState onFail,
-                   const char* errorWord,
-                   //const char* state,
-                   const char* expected = "OK",
-                   uint16_t timeout = 2000) {
-  if (!at.busy && !at.done) {
-    startAT(cmd, expected, timeout);
-  }
-  updateAT();
-  if (at.done) {
-    if (!at.result) {
-      DBG(F("Modem: Err "));
-      DBGL(errorWord);
-      retryCount++;
-      if (retryCount > MAX_RETRY) {
-        retryCount = 0;
-        logState = INIT;
-        modemInitStart();
-      } else {
-        logState = onFail;
-      }
-    } else {
-      logState = onSuccess;
-      //DBGL(state);
-    }
-    at.done = false;
-    at.result = false;
-    return true;
-  }
-  return false; 
-}
-
+bool modemHttpPending() { return logState != IDLE; }
+void cancelLogSend() { logState = IDLE; ++logUploadErrors; }
 void startSendLog() {
+  if (logState != IDLE) { ++skippedUploads; return; }
+  uploadGeneration = logGeneration; logNow = rtc.now();
+  logPart = retryCount = 0;
+  buildBinaryPayload(0); // Snapshot before logBuffer[0] can be reused.
   logState = INIT;
-  logNow = rtc.now();
-  retryCount = 0;
-  stopModemWatchdog = true;
-  logPart = 0;
 }
-
-void updateSendLog() {
+void httpStep(const char* command, SendLogState next, const char* expected = AT_OK, uint16_t timeout = 2000) {
+  if (at.done) {
+    bool success = at.result; at.done = false;
+    if (success) { retryCount = 0; logState = next; }
+    // Retrying an uncertain HTTP transaction can duplicate POST or inject a
+    // command into HTTPDATA. Abandon this upload and recover UART ownership.
+    else { recoverModem(); }
+  } else if (!at.busy) beginAT(command, expected, timeout);
+}
+void modemHttpTick() {
   switch (logState) {
-    case IDLE:
-      return;
-    case INIT:
-      buildBinaryPayload(logPart);
-  if (logPart == 0) {
-    handleATstate("AT+HTTPINIT", SEND_PARAMS, INIT, "Init");
-  } else {
-    logState = SEND_PARAMS;  // pomiń INIT jeśli już zrobione
-  }
-      break;
-    case SEND_PARAMS:
-      sendAT("AT+HTTPPARA=\"CID\",1");
-      sendAT("AT+HTTPPARA=\"URL\",\"http://ls1.cyra.com.pl/logger.php\"");
-      sendAT("AT+HTTPPARA=\"CONTENT\",\"application/octet-stream\"");
-      logState = SEND_DATA_CMD;
-      //DBGL(F("SEND_PARAMS"));
-      break;
+    case IDLE: modemOwner = OWNER_IDLE; return;
+    case INIT: httpStep(PSTR("AT+HTTPINIT"), SEND_CID); break;
+    case SEND_CID: httpStep(PSTR("AT+HTTPPARA=\"CID\",1"), SEND_URL); break;
+    case SEND_URL: httpStep(LOGGER_URL, SEND_CONTENT); break;
+    case SEND_CONTENT: httpStep(PSTR("AT+HTTPPARA=\"CONTENT\",\"application/octet-stream\""), SEND_DATA_CMD); break;
     case SEND_DATA_CMD:
-      char cmd[24];
-      sprintf(cmd, "AT+HTTPDATA=%u,5000", postSize);
-      handleATstate(cmd, SEND_DATA_BODY, SEND_PARAMS, "Data","DOWNLOAD");
+      if (!at.busy && !at.done) snprintf_P(at.command, sizeof(at.command), PSTR("AT+HTTPDATA=%u,5000"), postSize);
+      httpStep(nullptr, SEND_DATA_BODY, PSTR("DOWNLOAD"));
+      if (logState == SEND_DATA_BODY) { postOffset = 0; postSince = millis(); }
       break;
-    case SEND_DATA_BODY:
-      /*for (size_t i = 0; i < postSize; i++) {
-  if (postBin[i] < 0x10) DBG("0");
-  DBG(postBin[i], HEX);
-  DBG(" ");
-}
-DBGL();*/
-      while (Serial1.available()) Serial1.read();
-      Serial1.write((const uint8_t*)postBin, postSize);
-      Serial1.flush();
-      wait = (uint16_t)(millis() & 0xFFFF);
-      logState = WAIT;
-      //DBGL(F("SEND_DATA_BODY"));
+    case SEND_DATA_BODY: {
+      // Do not write more than fits in the UART ring. Never flush synchronously.
+      uint8_t budget = MODEM_BUDGET;
+      while (budget-- && postOffset < postSize && Serial1.availableForWrite() > 0) Serial1.write(postBin[postOffset++]);
+      if (postOffset == postSize) { postSince = millis(); logState = WAIT_BODY; }
+      else if ((uint32_t)(millis() - postSince) >= 4500) { recoverModem(); }
       break;
-    case WAIT:
-      if ((uint16_t)(millis() - wait) > 500) {
-        logState = HTTP_ACTION;
-        //DBGL(F("WAIT"));
-        }
+    }
+    case WAIT_BODY:
+      // Consume the modem's upload acknowledgement before issuing HTTPACTION.
+      if (!at.busy && !at.done) {
+        at.expected = PSTR("OK"); at.timeout = 1500; at.since = millis();
+        at.length = 0; at.overflow = at.matched = at.ok = false;
+        at.phase = 2; at.busy = true;
+      }
+      if (at.done) {
+        bool success = at.result; at.done = false;
+        if (success) logState = HTTP_ACTION;
+        else { recoverModem(); }
+      }
       break;
-    case HTTP_ACTION:
-      handleATstate("AT+HTTPACTION=1", PART2, SEND_PARAMS, "Action", "+HTTPACTION: 1,200", 3000);
-      break;
+    case HTTP_ACTION: httpStep(PSTR("AT+HTTPACTION=1"), PART2, PSTR("+HTTPACTION: 1,200"), 3000); break;
     case PART2:
-      logPart++;
-      DBGL(F("SQL: Logi zapisane."));
-  if (logPart < 2) {
-    logState = INIT;  // druga porcja
-  } else {
-    logState = DONE;  // koniec
-  }
+      if (logPart == 0) {
+        // No extra 1260-byte buffer: reject stale second half instead of mixing two minutes.
+        if (uploadGeneration != logGeneration || logIndex > LOG_PART) { ++logUploadErrors; logState = DONE; break; }
+        logPart = 1; buildBinaryPayload(1); logState = SEND_CID;
+      } else logState = DONE;
       break;
     case DONE:
-      sendAT("AT+HTTPTERM");
-      logState = IDLE;
-      stopModemWatchdog = false;
-      //DBGL(F("DONE"));
+      httpStep(PSTR("AT+HTTPTERM"), IDLE);
+      if (logState == IDLE) modemOwner = OWNER_IDLE;
       break;
   }
 }
-
-/*
-void syncTimeFromAPI() {
-  sendAT("AT+HTTPINIT");
-  sendAT("AT+HTTPPARA=\"CID\",\"1\"");
-  sendAT("AT+HTTPPARA=\"URL\",\"http://ls1.cyra.com.pl/time.php\"");
-  sendAT("AT+HTTPACTION=0",200);
-  String buffer;
-  buffer = sendATread("AT+HTTPREAD");
-  sendAT("AT+HTTPTERM", 200);
-int idx = buffer.indexOf(" ");
-if (idx > 0) {
-  int start = buffer.indexOf("20");
-  int end = buffer.indexOf(" OK", start);
-  if (start > 0 && end > start) {
-    buffer = buffer.substring(start, end);
-    buffer.trim();
-  }
-}
-
-  if (buffer.length() < 19) {
-    DBG(F("Too short data: "));
-    DBGL(buffer);
-    return;
-  }
-
-  int y  = buffer.substring(0, 4).toInt();
-  int m  = buffer.substring(5, 7).toInt();
-  int d  = buffer.substring(8, 10).toInt();
-  int h  = buffer.substring(11, 13).toInt();
-  int mi = buffer.substring(14, 16).toInt();
-  int s  = buffer.substring(17, 19).toInt();
-
-  if (y > 2020 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-    DateTime compiled(DateTime(y, m, d, h, mi, s));
-    EEPROM.update(EEPROM_DST_FLAG_ADDR, czyLetni(d, m, compiled.dayOfTheWeek()) ? 1 : 0);
-    rtc.adjust(compiled);
-    DBG(F("RTC ustawiony: "));
-    DBGL(compiled.timestamp());
-  } else {
-    DBGL(F("Nieprawidłowe dane czasu z API"));
-  }
-
-}
-*/

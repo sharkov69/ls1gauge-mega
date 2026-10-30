@@ -6,7 +6,7 @@
 
 W `setup()` program uruchamia porty szeregowe, rozpoczyna inicjalizację modemu, konfiguruje czujniki i RTC, inicjalizuje SD, odczytuje EEPROM, uruchamia TFT oraz VPW. Na końcu włącza watchdog AVR z limitem 4 s. Brak RTC zatrzymuje start; błąd SD tylko generuje komunikat diagnostyczny i pozwala kontynuować.
 
-W `loop()` program obsługuje nadawanie i odbiór VPW, ekrany, przyciski, czujniki, logi, terminal oraz automat modemu. Część operacji modemu i GPS czeka na odpowiedź, więc poniższe interwały są wartościami nominalnymi, a nie gwarantowanym okresem próbkowania.
+W `loop()` program obsługuje odbiór i nadawanie VPW, ekrany, przyciski, czujniki, logi, terminal oraz automat modemu. Modem oddaje sterowanie między porcjami danych. Podczas oczekiwania na długą odpowiedź GPS pętla obsługuje VPW RX i modem, odkładając wolniejsze zadania do zakończenia odpowiedzi lub timeoutu 1 s. SD, grafika i DHT nadal mają koszty synchroniczne; poniższe interwały są nominalne.
 
 | Zadanie | Interwał / warunek |
 | --- | --- |
@@ -23,7 +23,9 @@ Flaga `tick` jest typu `bool`. Jeśli pętla utknie na dłużej niż sekundę, k
 
 ## Zapytania VPW
 
-`send()` wybiera najbardziej opóźnione zapytanie z tablicy `cmd[]`. Respektuje minimalny odstęp `pause` oraz 10 ms od ostatniego przetworzonego odbioru. Następnie wywołuje `vpw.send(..., 10)`, czyli nadawanie z oczekiwaniem na wolną magistralę do 10 ms. Licznik TX zlicza próby wysłania; funkcja biblioteki nie zwraca potwierdzenia sukcesu.
+Domyślnie program przełącza 11 kanałów na [dwa pakiety DPID](DPID.md), nominalnie co około 200 ms każdy. Poniższy harmonogram pojedynczych zapytań obowiązuje przed konfiguracją, po powrocie do legacy lub po wyłączeniu DPID. Przeliczniki obu trybów są wspólne.
+
+`send()` wybiera najbardziej opóźnione zapytanie z tablicy `cmd[]`. Respektuje minimalny odstęp `pause` oraz 10 ms od ostatniego przetworzonego odbioru. Wywołuje `vpw.send(..., 1)`, ograniczając oczekiwanie na wolną magistralę do 1 ms. Licznik TX dodaje 1 próbkę dla pojedynczego PID, a czas ostatniego wysłania aktualizuje tylko po sukcesie biblioteki. Sposób zliczania kanałów w trybie pakietowym opisuje [DPID.md](DPID.md). To potwierdzenie nadania bez wykrytej kolizji, nie odpowiedzi ECU.
 
 Zapytania trybu `01` używają nagłówka `68 6A F1`; rozszerzone zapytania trybu `22` nagłówka `6C 10 F1` i dodatkowego bajtu `01` po PID. Biblioteka dopisuje CRC.
 
@@ -51,13 +53,13 @@ Dla odpowiedzi trybu `01` oznaczmy `A = pData[5]`, `B = pData[6]`. Kod oblicza R
 
 Dla rozszerzonych odpowiedzi używa `C = pData[6]`: temperatura skrzyni to `C-40`, napięcie to `C/10` V, a surowa wartość oleju to `max(0, ((C*111)>>8)-10)`. Ekran dzieli wartość oleju przez 10.
 
-Dla obu kanałów AFR program wyznacza `1029 + 3*C + ((C*117+128)>>8)`, a następnie średnią ruchomą z 10 wartości. Wartości spoza 1029–1911 zastępuje 1475; do prezentacji stosuje skalę 1/100. Ten przelicznik jest założeniem projektu, nie potwierdzeniem dokładności pomiaru AFR.
+Dla obu kanałów AFR program wyznacza `1029 + 3*C + ((C*117+128)>>8)`, a następnie średnią ruchomą z 4 wartości dla obu sond szerokopasmowych. Wartości spoza 1029–1911 zastępuje 1475; do prezentacji stosuje skalę 1/100. Ten przelicznik jest założeniem projektu, nie potwierdzeniem dokładności pomiaru AFR.
 
 Wartości czujników temperatury dodatkowej i wilgotności mają skalę 1/10. DS18B20 pracują z rozdzielczością 11 bitów, a program rozpoczyna konwersję bez oczekiwania i odbiera wynik w kolejnym cyklu.
 
 ### Biblioteka `J1850-VPW-WC`
 
-Biblioteka mierzy odstępy między zboczami RX w przerwaniu. Używa bufora 32 ramek i rozmiaru `BS=8` bajtów na ramkę. W odbiorze filtruje pierwszy bajt, dopuszczając `0x6C` i `0x48`; nie jest więc uniwersalnym rejestratorem wszystkich ramek VPW. Domyślne `tryGetReceivedFrame()` sprawdza CRC.
+Biblioteka mierzy odstępy między zboczami RX w przerwaniu. Używa bufora 32 ramek i rozmiaru `BS=13` bajtów na ramkę, łącznie z CRC. W odbiorze filtruje pierwszy bajt, dopuszczając `0x6C` i `0x48`; nie jest uniwersalnym rejestratorem wszystkich ramek VPW. `tryGetReceivedFrame()` sprawdza CRC każdej ramki i domyka ramkę także po ciszy na magistrali. Kolejka chroni odczyt krótką sekcją atomową; przepełnienie usuwa najstarszą ramkę i zwiększa licznik. Szkic dodatkowo sprawdza źródło `10`, adresowanie, usługę, PID i długość odpowiedzi.
 
 Nadajnik generuje nominalne impulsy 64 i 128 µs oraz SOF 200 µs. Podczas nadawania odłącza przerwanie RX i sprawdza arbitraż przez odczyt wejścia. Dołączony kod ogranicza się do krótkich ramek i nie obsługuje danych IFR jako osobnego protokołu aplikacyjnego.
 
@@ -73,7 +75,7 @@ Demo nadpisuje wybrane pola wartościami losowymi co cykl GUI. Nie wyłącza odp
 
 Co obsłużony impuls SQW program dodaje bieżące wartości do sum. Po dwóch impulsach zapisuje średnią całkowitą jako `LogEntry`. Brak pomiaru oznaczony `-32768` w sumowaniu zastępuje zerem; nie ma osobnej flagi jakości ani terminu ważności odczytu.
 
-Po zapełnieniu 30 rekordów program dopisuje je do `l-YYMMDD.csv`, np. `l-261027.csv`. Pierwszy wiersz nowego pliku zawiera nagłówki. Kolejność 18 kolumn:
+Po zapełnieniu 30 rekordów program otwiera `l-YYMMDD.csv`, np. `l-261027.csv`, a kolejne iteracje dopisują po jednym rekordzie. Jeśli nowy pomiar nadpisze jeszcze niezapisany rekord, program przerywa zapis i zwiększa `sdErrors`. Pierwszy wiersz nowego pliku zawiera nagłówki. Kolejność 18 kolumn:
 
 | Kolumna | Pole | Jednostka / zapis |
 | --- | --- | --- |
@@ -99,11 +101,11 @@ Rok i miesiąc pochodzą z chwili zapisu całej paczki; rekord przechowuje tylko
 
 ## Modem, GPS i HTTP
 
-Inicjalizacja sprawdza kartę SIM, ustawia tryb sieci i APN `internet`, otwiera połączenie oraz uruchamia GPS. Test startowy wykonuje HTTP GET na endpoint logów i oczekuje dokładnie `+HTTPACTION: 0,403`. Zmiana zachowania serwera może zatrzymać przechodzenie do stanu gotowości.
+Inicjalizacja sprawdza kartę SIM, ustawia tryb sieci i APN `internet`, otwiera połączenie oraz uruchamia GPS. Test startowy wykonuje HTTP GET na endpoint logów i oczekuje statusu `403` w `+HTTPACTION: 0,403,<długość>`. Zmiana zachowania serwera może zatrzymać przechodzenie do stanu gotowości.
 
 Po inicjalizacji program kontroluje `AT+CGATT?` i `AT+CREG?`. Dopuszcza rejestrację w sieci macierzystej lub roamingu; po około 20 s braku gotowości uruchamia ponownie sekwencję inicjalizacji. Nie jest to sprzętowe odcięcie zasilania modemu.
 
-GPS odczytuje przez `AT+CGPSINFO`. Pozycję zamienia na stopnie dziesiętne, mnoży przez milion i dzieli na dwie połówki 16-bitowe. Dolne słowa przechowuje w `wartosc`, górne w `lastValue`. Parser nie zapewnia pełnej walidacji braku fixa. Co więcej, logger uśrednia połówki niezależnie, więc przejście przez granicę słowa może zniekształcić współrzędne.
+GPS odczytuje przez `AT+CGPSINFO`. Parser sprawdza pola współrzędnych, zakresy i kierunki; brak fixa pozostawia ostatnią pozycję. Pozycję zamienia na stopnie dziesiętne, mnoży przez milion i dzieli na dwie połówki 16-bitowe. Dolne słowa przechowuje w `wartosc`, górne w `lastValue`. Logger nadal uśrednia połówki niezależnie, więc przejście przez granicę słowa może zniekształcić współrzędne.
 
 Po zapełnieniu bufora program próbuje wysłać dwa POST-y po 15 rekordów do `http://ls1.cyra.com.pl/logger.php`, z typem `application/octet-stream`. Oczekuje odpowiedzi `+HTTPACTION: 1,200`. Podczas wysyłki wstrzymuje kontrolę sieci i odczyt GPS. Kod serwera nie znajduje się w repozytorium.
 
@@ -119,11 +121,11 @@ Poniższy układ wynika z kopiowania struktury w pamięci AVR. Przy przeniesieni
 | 15 | 630 bajtów | 15 rekordów po 42 bajty na AVR |
 | 645 | 2 bajty | CRC16, młodszy bajt najpierw |
 
-Razem: 647 bajtów. Makro `POSTBIN_SIZE` rezerwuje o jeden bajt więcej; `postSize` określa rzeczywistą długość transmisji. CRC obejmuje token, rok, miesiąc i rekordy, używa wielomianu `0x1021`, wartości początkowej `0xFFFF`, bez końcowego XOR.
+Razem: 647 bajtów, tyle samo rezerwuje `POSTBIN_SIZE`. CRC obejmuje token, rok, miesiąc i rekordy, używa wielomianu `0x1021`, wartości początkowej `0xFFFF`, bez końcowego XOR.
 
 Rekord zawiera `day`, `hour`, `minute`, `second` jako cztery `uint8_t`, następnie 19 wartości `int16_t`: pola `cmd[0..16]` oraz górne słowa LAT i LON na pozycjach 17 i 18. Wartości binarne zachowują wewnętrzne skale programu, bez dzielników używanych przy zapisie CSV. Pakiet nie zawiera numeru części.
 
-Wysyłka korzysta z bieżącego `logBuffer`; osobna kopia bufora HTTP jest zakomentowana. Podczas opóźnionej transmisji nowe próbki mogą nadpisywać dane oczekujące na wysłanie. Program nie odsyła później zaległych CSV z karty. HTTP nie szyfruje tokenu ani pomiarów, w tym pozycji GPS.
+Wysyłka kopiuje pierwszą połowę logu do `postBin` przed ponownym użyciem bufora. Drugą kopiuje dopiero po wysłaniu pierwszej, sprawdzając generację i indeks zapisu. Nadpisanie drugiej połowy przerywa wysyłkę, zamiast mieszać minuty. UART ma jednego właściciela dla inicjalizacji, sieci, GPS i HTTP. Po błędzie HTTP program porzuca paczkę i czeka na 5,5 s ciszy przed ponowną inicjalizacją; spóźnione dane restartują ten okres. Nie ponawia POST w niepewnym stanie modemu. Program nie odsyła później zaległych CSV z karty. HTTP nie szyfruje tokenu ani pomiarów, w tym pozycji GPS.
 
 ## EEPROM
 
@@ -143,4 +145,4 @@ Pusta EEPROM może włączyć demo i oba tryby widoku, ponieważ wartość `0xFF
 
 ## Granice tej dokumentacji
 
-Opis rozbieżności skali oleju, jakości GPS, buforowania i komentarzy dotyczy aktualnego kodu. W ramach dokumentacji nie zmieniono firmware. Nie potwierdzono modelu modemu, schematu VPW, wersji środowiska ostatniego wsadu ani dokładności przeliczników rozszerzonych PID dla innych sterowników.
+Etap 1 pozostawia przeliczniki i format logów. Znane rozbieżności skali oleju oraz uśredniania GPS wymagają osobnej zmiany formatu lub obliczeń. Wyniki kompilacji i zakres testów opisuje [raport etapu 1](ETAP1.md). Nie potwierdzono modelu modemu, schematu VPW ani dokładności rozszerzonych PID dla innych sterowników.

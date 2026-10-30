@@ -1,5 +1,11 @@
 #define TX 5
 #define RX 3
+#include "vpw_reply.h"
+#include "vpw_dpid.h"
+#ifndef VPW_DPID_ENABLED
+#define VPW_DPID_ENABLED 1
+#endif
+VpwDpid dpid;
 #ifdef DEBUGVPW
 void handleError(J1850_Operations op, J1850_ERRORS err);
 #endif
@@ -113,7 +119,7 @@ uint16_t czas = 0;
 volatile uint16_t lastRxEnd = 0; 
 
 
-#define O2SREDNIA 10
+#define O2SREDNIA 4 // Wideband AFR: shorter moving average for both banks.
 struct objO2 {
   int16_t o2[O2SREDNIA];
   uint8_t id;
@@ -142,9 +148,21 @@ int16_t updateO2(objO2 &o2, int16_t v) {
   return sum / O2SREDNIA;
 }
 
+uint16_t lastSend = 0;
+bool transmitVpw(uint8_t* data, uint8_t size) {
+  bool sent = vpw.send(data, size, 1);
+  lastSend = (uint16_t)millis();
+  if (sent) counter2 += vpwRequestedSamples(data, size);
+  return sent;
+}
 void send(){
-  static uint16_t lastSend = 0;
+  czas = (uint16_t)millis(); // read() may have advanced lastRxEnd since loop entry.
   const uint16_t guardRx = 10;
+  const bool canTransmit = (uint16_t)(czas - lastSend) >= pause && (uint16_t)(czas - lastRxEnd) >= guardRx;
+#if VPW_DPID_ENABLED
+  dpid.tick(millis(), canTransmit, transmitVpw);
+  if (!dpid.directPolling()) return;
+#endif
   uint8_t id = 0xFF;
   int32_t max = -32000;
 
@@ -160,8 +178,7 @@ void send(){
     }
   }
   if (id != 0xFF && (uint16_t)(czas - lastSend) >= pause && (uint16_t)(czas - lastRxEnd) >= guardRx) {
-    vpw.send((uint8_t*)cmd[id].data, cmd[id].dl, 10);
-    counter2++;  
+    bool sent = transmitVpw((uint8_t*)cmd[id].data, cmd[id].dl);
     #ifdef TXRX
     DBG(F("TX: "));
     for (uint8_t j = 0; j < cmd[id].dl; j++) {
@@ -172,18 +189,13 @@ void send(){
     DBGL();
     #endif
     czas = (uint16_t)(millis() & 0xFFFF);
-    cmd[id].lastCzas = czas;
+    if (sent) cmd[id].lastCzas = czas;
     lastSend = czas;
   }
 }
 
-void read(){
-    static uint8_t buff[BS];
-  uint8_t dataSize;
-  while (dataSize = vpw.tryGetReceivedFrame(buff)) {
-  uint8_t *pData = buff;
-  if (dataSize >= 6) {  
-    counter++;  
+void decodeGaugeReply(const uint8_t* pData, uint8_t dataSize) {
+  if (validGaugeReply(pData, dataSize)) {
     #ifdef TXRX     
     DBG(F("RX:"));
     for (uint8_t i = 0; i < dataSize; i++) {
@@ -322,10 +334,48 @@ void read(){
         default:
           break;
       }
-  lastRxEnd = (uint16_t)(millis() & 0xFFFF);
 	}
-  }
+}
 
+void decodeDpidPacket(uint8_t packet, const uint8_t* data) {
+  // Reuse the existing PID conversions and independent four-sample AFR filters.
+  for (uint8_t i = 0; i < 11; ++i) {
+    DpidField f = dpidField(i);
+    if (f.packet != packet) continue;
+    uint8_t reply[8] = {0x6c,0xf1,0x10,0,0,0,0,0};
+    if (f.pid > 0xff) {
+      reply[3] = 0x62; reply[4] = (uint8_t)(f.pid >> 8); reply[5] = (uint8_t)f.pid;
+      reply[6] = data[f.offset];
+      decodeGaugeReply(reply, 8);
+    } else {
+      reply[3] = 0x41; reply[4] = (uint8_t)f.pid;
+      memcpy(reply + 5, data + f.offset, f.length);
+      decodeGaugeReply(reply, (uint8_t)(6 + f.length));
+    }
+  }
+}
+
+void read() {
+  static uint8_t buff[BS];
+  uint8_t size;
+  while ((size = vpw.tryGetReceivedFrame(buff)) != 0) {
+    // All frames here passed CRC. Protect TX even for control/other bus traffic.
+    lastRxEnd = (uint16_t)millis();
+#if VPW_DPID_ENABLED
+    int8_t packet = dpid.receive(buff, size, millis());
+    if (packet >= 0) {
+      decodeDpidPacket((uint8_t)packet, buff + 5);
+      counter += dpidChannelCount((uint8_t)packet);
+      continue;
+    }
+#endif
+    if (validGaugeReply(buff, size)) {
+#if VPW_DPID_ENABLED
+      dpid.ecuSeen();
+#endif
+      decodeGaugeReply(buff, size); ++counter;
+    }
+  }
 }
 
 #ifdef DEBUGVPW

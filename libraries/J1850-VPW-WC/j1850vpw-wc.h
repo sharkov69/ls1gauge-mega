@@ -3,9 +3,9 @@
 //#define DEBUGVPW
 
 #define STORAGE_SIZE 32
-#define STORAGE_MASK STORAGE_SIZE-1
+#define STORAGE_MASK (STORAGE_SIZE-1)
 #define STORAGE_RESET 0xFF
-#define BS               8
+#define BS               13 // 12-byte DPID data or 13-byte echoed rejection, including CRC.
 
 class StorageItem
 {
@@ -16,11 +16,12 @@ public:
 
 class Storage
 {
-    uint8_t _first;
-    uint8_t _last;
+    volatile uint8_t _first;
+    volatile uint8_t _last;
     StorageItem _items[STORAGE_SIZE];
 
 public:
+    volatile uint16_t dropped = 0;
     Storage();
 
     void push(uint8_t *buff, uint8_t size);
@@ -70,14 +71,13 @@ private:
     Pin __rxPin;
     Pin __txPin;
 
-    unsigned long  _lastChange;
+    volatile uint32_t _lastChange;
     volatile bool _sofRead;
     volatile uint8_t _currState;
     volatile uint8_t _bit;
     volatile uint8_t _byte;
     volatile bool _IFRDetected;
     uint8_t _buff[BS];
-    uint8_t *msg_buf;
 
     Storage _storage = Storage();
 #ifdef DEBUGVPW 
@@ -98,7 +98,9 @@ public:
     J1850VPW* init(uint8_t rxPin);
 
     int8_t tryGetReceivedFrame(uint8_t *pBuff, bool justValid = true);
-    void send(uint8_t* pData, uint8_t size, int16_t timeoutMs = -1);
+    bool send(uint8_t* pData, uint8_t size, int16_t timeoutMs = -1);
+    uint16_t crcErrors = 0;
+    uint16_t droppedFrames() const;
 #ifdef DEBUGVPW 
     J1850VPW* onError(onErrorHandler errHandler);
 #endif
