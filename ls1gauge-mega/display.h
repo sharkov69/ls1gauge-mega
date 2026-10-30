@@ -18,8 +18,8 @@ const DisplayField fields[14] PROGMEM = {
   {155, 160, 35, 18,   99, 0, 2, 3, GC9A01A_WHITE},  // WATER = 9
   { 70, 100, 50, 18,   -1, 2, 2, 3, GC9A01A_WHITE},  // O2    = 10
 
-  {138, 225, 25, 18,   -1, 0, 1, 3, GC9A01A_YELLOW}, // 11: RX
-  {112, 225, 17, 18,   -1, 0, 1, 3, GC9A01A_YELLOW}, // 12: TX
+  {140, 225, 25, 18,   -1, 0, 1, 4, GC9A01A_YELLOW}, // 11: RX channel samples/min
+  {100, 225, 25, 18,   -1, 0, 1, 4, GC9A01A_YELLOW}, // 12: TX requested channels/min
   {125, 200, 47, 18,   -1, 1, 2, 3, GC9A01A_WHITE}   // 13: bateria w drugim widoku
 };
 
@@ -96,7 +96,8 @@ void drawGUI() {
   tft.setCursor(155, 180); tft.print(F("  0")); tft.write(0xF7); tft.println(F("C"));
 
   tft.setTextSize(1); tft.setTextColor(GC9A01A_YELLOW);
-  tft.setCursor(78, 225); tft.println(F("TX/RX    /"));
+  tft.setCursor(66, 225); tft.print(F("TX/RX"));
+  tft.setCursor(130, 225); tft.print('/');
   wdt_reset();
 }
 
@@ -121,7 +122,8 @@ void drawGUI2() {
   tft.setCursor(155, 180); tft.print(F("  0")); tft.write(0xF7); tft.println(F("C"));
   tft.setCursor(72, 200); tft.println(F("Bat:"));
   tft.setTextSize(1); tft.setTextColor(GC9A01A_YELLOW);
-  tft.setCursor(78, 225); tft.println(F("TX/RX    /"));
+  tft.setCursor(66, 225); tft.print(F("TX/RX"));
+  tft.setCursor(130, 225); tft.print('/');
   wdt_reset();
 }
 

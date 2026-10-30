@@ -24,6 +24,14 @@ Tryb `2A 14` pochodzi z implementacji tego samego P59 w `codex-p59-scanner`. W t
 
 Ekrany nadal odświeżają parametry co 400 ms, logger zapisuje średnią co dwa impulsy 1 Hz, a oba AFR używają filtra 4 próbek. Szybsza akwizycja nie zmienia częstotliwości zapisu CSV ani formatu POST.
 
+### Liczniki TX/RX na ekranie
+
+Nazwy pozostają `TX/RX`, ale jednostką jest liczba wartości kanałów, zamiast liczby ramek. RX dodaje 5 za poprawnie odebrany FE, 6 za FD i 1 za zwykłą odpowiedź PID. Liczy próbki wejściowe przed uśrednianiem AFR, nie rekordy CSV. Przy 5 Hz obu pakietów wynik nominalny wynosi `(5 + 6) × 5 × 60 = 3300` próbek/min, około 4,1 razy więcej niż obserwowane wcześniej 800. Rzeczywisty wynik zależy od okresu ECU i utraty ramek.
+
+TX liczy kanały objęte udanym wysłaniem żądania: pojedynczy PID dodaje 1, a START obu pakietów dodaje 11, bez podwójnego liczenia powtórzonych identyfikatorów. Definicje, STOP i keepalive nie zwiększają TX. Kolejne cykliczne odpowiedzi nie wymagają nowych żądań, więc TX po rozruchu może wynosić 0 przy wysokim RX. Nie jest to licznik potwierdzeń ECU ani przewidywanej liczby przyszłych próbek.
+
+Okno nadal obejmuje 20 przedziałów po około 3 s, odświeżanych co 3 s; przez pierwszą minutę dopiero się wypełnia. Liczniki i przedziały mają teraz 16 bitów, a oba pola mieszczą cztery cyfry. Demo nie dopisuje już losowych próbek do RX. Liczniki `fe` i `fd` w terminalu nadal liczą pakiety od uruchomienia, niezależnie od statystyki ekranowej.
+
 ## Start i powrót do legacy
 
 1. Mega rozpoczyna od pojedynczych zapytań. Pierwsza poprawna odpowiedź rozpoznanego PID potwierdza obecność ECU.
@@ -68,8 +76,9 @@ Kompilacja Mega 2560, Arduino AVR Boards 1.8.8 i te same biblioteki co w etapie 
 | Baza przed etapem 1 | 78 642 B | 6532 B | 1660 B |
 | Etap 1 | 79 290 B | 5176 B | 3016 B |
 | Dwa pakiety DPID | 81 080 B | 5389 B | 2803 B |
+| DPID i liczniki próbek TX/RX | 81 464 B | 5431 B | 2761 B |
 
-DPID dodaje 213 B statycznego SRAM, głównie przez powiększenie 32-elementowej kolejki ramek z 8 do 13 bajtów. Dane DPID mają 12 bajtów z nagłówkiem i CRC; pełna odmowa definicji z echem może mieć 13. Definicje są w PROGMEM, bez dodatkowej alokacji na stercie.
+Sam DPID dodaje 213 B statycznego SRAM, głównie przez powiększenie 32-elementowej kolejki ramek z 8 do 13 bajtów. Poszerzenie liczników dodaje kolejne 42 B. Dane DPID mają 12 bajtów z nagłówkiem i CRC; pełna odmowa definicji z echem może mieć 13. Definicje są w PROGMEM, bez dodatkowej alokacji na stercie.
 
 Pięć programów testowych hosta przechodzi: VPW, modem, SD/BMP, automat DPID i integracja z dekoderem. Nowe testy obejmują ramki 12/13 bajtów, wszystkie definicje, potwierdzenia, obcy ECU, złe długości, start, keepalive, timeout, zanik jednego pakietu, STOP, spóźniony strumień, zajęty TX, zawinięcie czasu i zgodność 11 wartości z legacy. Przegląd kodu objął także odstęp TX po RX. Uruchomienie: `./tests/run-host-tests.ps1`.
 

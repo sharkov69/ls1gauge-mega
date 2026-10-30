@@ -42,8 +42,9 @@ Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 #define TFT2_RST   13
 Adafruit_GC9A01A tft2(TFT2_CS, TFT2_DC, TFT2_RST);
 
-uint8_t stats[2][ILE] = {0};
-uint8_t current{}, counter{}, counter2{};
+uint16_t stats[2][ILE] = {0};
+uint8_t current{};
+uint16_t counter{}, counter2{};
 uint16_t lastStats{};
 
 constexpr int16_t KAT = 210;
@@ -228,7 +229,6 @@ void loop(void) {
     cmd[SPARK].wartosc  = randomDelta(cmd[SPARK].wartosc, -10, 30, 0.1);
     cmd[BATT].wartosc  = randomDelta(cmd[BATT].wartosc, 131, 146, 0.1);
     cmd[MAP].wartosc = randomDelta(cmd[MAP].wartosc, 30, 70, 0.1);
-    counter += random(0,10);
     //refreshInterval = 500;
   } //else {refreshInterval = 250;}
 

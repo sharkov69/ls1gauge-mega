@@ -152,7 +152,7 @@ uint16_t lastSend = 0;
 bool transmitVpw(uint8_t* data, uint8_t size) {
   bool sent = vpw.send(data, size, 1);
   lastSend = (uint16_t)millis();
-  if (sent) ++counter2;
+  if (sent) counter2 += vpwRequestedSamples(data, size);
   return sent;
 }
 void send(){
@@ -363,7 +363,11 @@ void read() {
     lastRxEnd = (uint16_t)millis();
 #if VPW_DPID_ENABLED
     int8_t packet = dpid.receive(buff, size, millis());
-    if (packet >= 0) { decodeDpidPacket((uint8_t)packet, buff + 5); ++counter; continue; }
+    if (packet >= 0) {
+      decodeDpidPacket((uint8_t)packet, buff + 5);
+      counter += dpidChannelCount((uint8_t)packet);
+      continue;
+    }
 #endif
     if (validGaugeReply(buff, size)) {
 #if VPW_DPID_ENABLED

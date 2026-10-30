@@ -25,7 +25,7 @@ Flaga `tick` jest typu `bool`. Jeśli pętla utknie na dłużej niż sekundę, k
 
 Domyślnie program przełącza 11 kanałów na [dwa pakiety DPID](DPID.md), nominalnie co około 200 ms każdy. Poniższy harmonogram pojedynczych zapytań obowiązuje przed konfiguracją, po powrocie do legacy lub po wyłączeniu DPID. Przeliczniki obu trybów są wspólne.
 
-`send()` wybiera najbardziej opóźnione zapytanie z tablicy `cmd[]`. Respektuje minimalny odstęp `pause` oraz 10 ms od ostatniego przetworzonego odbioru. Wywołuje `vpw.send(..., 1)`, ograniczając oczekiwanie na wolną magistralę do 1 ms. Licznik TX i czas ostatniego wysłania danego PID aktualizuje tylko po sukcesie biblioteki. To potwierdzenie nadania bez wykrytej kolizji, nie odpowiedzi ECU.
+`send()` wybiera najbardziej opóźnione zapytanie z tablicy `cmd[]`. Respektuje minimalny odstęp `pause` oraz 10 ms od ostatniego przetworzonego odbioru. Wywołuje `vpw.send(..., 1)`, ograniczając oczekiwanie na wolną magistralę do 1 ms. Licznik TX dodaje 1 próbkę dla pojedynczego PID, a czas ostatniego wysłania aktualizuje tylko po sukcesie biblioteki. Sposób zliczania kanałów w trybie pakietowym opisuje [DPID.md](DPID.md). To potwierdzenie nadania bez wykrytej kolizji, nie odpowiedzi ECU.
 
 Zapytania trybu `01` używają nagłówka `68 6A F1`; rozszerzone zapytania trybu `22` nagłówka `6C 10 F1` i dodatkowego bajtu `01` po PID. Biblioteka dopisuje CRC.
 
