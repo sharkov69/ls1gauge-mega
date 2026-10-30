@@ -44,11 +44,11 @@ int main(){
         for(int i=0;i<40;++i){data[0]=(uint8_t)i;q.push(data,8);}
         for(int i=8;i<40;++i){CHECK(q.tryPopItem(out)==8);CHECK(out[0]==i);}
         CHECK(q.tryPopItem(out)==0);CHECK(q.dropped==8);
-        q.push(data,0);q.push(data,9);CHECK(q.tryPopItem(out)==0);
+        q.push(data,0);q.push(data,BS+1);CHECK(q.tryPopItem(out)==0);
     }
     {
         J1850VPW v;v.init(3,5);testStepUs=1;pins[3]=HIGH;
-        CHECK(!v.send(nullptr,1,1));CHECK(!v.send(good,0,1));CHECK(!v.send(good,8,1));
+        CHECK(!v.send(nullptr,1,1));CHECK(!v.send(good,0,1));CHECK(!v.send(good,BS,1));
         pins[3]=LOW;CHECK(!v.send(good,6,1));CHECK(pins[5]==HIGH);
         v._sofRead=true;v._byte=2;v._bit=3;
         CHECK(!v.send(good,6,1));CHECK(v._sofRead);CHECK(v._byte==2&&v._bit==3);
@@ -68,6 +68,13 @@ int main(){
         CHECK(validGaugeReply(reply,8));CHECK(!validGaugeReply(reply,7));
         reply[5]=0x42;CHECK(!validGaugeReply(reply,8));
         reply[5]=0x41;reply[1]=0xf2;CHECK(!validGaugeReply(reply,8));
+    }
+    for(uint8_t n=12;n<=13;++n){
+        uint8_t packet[14]={0x6c,0xf1,0x10,0x6a,0xfe,0x1f,0x40,0x80,0x30,0x60,0x22,0};
+        packet[n-1]=crc(packet,n-1);
+        testUs=0;pins[3]=HIGH;J1850VPW v;v.init(3,5);uint8_t out[14]={};
+        frame(v,packet,n);testUs+=300;
+        CHECK(v.tryGetReceivedFrame(out)==n);CHECK(memcmp(out,packet,n)==0);
     }
     printf("VPW failures: %d\n",failures);return failures?1:0;
 }

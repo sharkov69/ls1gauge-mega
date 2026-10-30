@@ -38,6 +38,8 @@ Etap 1 przeszedł kompilację AVR i testy hosta. Nie wgrywano go na urządzenie.
 
 ## Konfiguracja
 
+Domyślny odczyt używa dwóch pakietów P59. Ustawienie VPW_DPID_ENABLED oraz komendę terminala VPW opisuje [DPID.md](DPID.md).
+
 | Ustawienie | Miejsce | Wartość w kodzie |
 | --- | --- | --- |
 | Adres DS18B20 wewnętrznego | `temp.h`, `tempIn` | `28 75 F6 BC 00 00 00 D4` |

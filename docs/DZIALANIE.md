@@ -23,6 +23,8 @@ Flaga `tick` jest typu `bool`. Jeśli pętla utknie na dłużej niż sekundę, k
 
 ## Zapytania VPW
 
+Domyślnie program przełącza 11 kanałów na [dwa pakiety DPID](DPID.md), nominalnie co około 200 ms każdy. Poniższy harmonogram pojedynczych zapytań obowiązuje przed konfiguracją, po powrocie do legacy lub po wyłączeniu DPID. Przeliczniki obu trybów są wspólne.
+
 `send()` wybiera najbardziej opóźnione zapytanie z tablicy `cmd[]`. Respektuje minimalny odstęp `pause` oraz 10 ms od ostatniego przetworzonego odbioru. Wywołuje `vpw.send(..., 1)`, ograniczając oczekiwanie na wolną magistralę do 1 ms. Licznik TX i czas ostatniego wysłania danego PID aktualizuje tylko po sukcesie biblioteki. To potwierdzenie nadania bez wykrytej kolizji, nie odpowiedzi ECU.
 
 Zapytania trybu `01` używają nagłówka `68 6A F1`; rozszerzone zapytania trybu `22` nagłówka `6C 10 F1` i dodatkowego bajtu `01` po PID. Biblioteka dopisuje CRC.
@@ -57,7 +59,7 @@ Wartości czujników temperatury dodatkowej i wilgotności mają skalę 1/10. DS
 
 ### Biblioteka `J1850-VPW-WC`
 
-Biblioteka mierzy odstępy między zboczami RX w przerwaniu. Używa bufora 32 ramek i rozmiaru `BS=8` bajtów na ramkę, łącznie z CRC. W odbiorze filtruje pierwszy bajt, dopuszczając `0x6C` i `0x48`; nie jest uniwersalnym rejestratorem wszystkich ramek VPW. `tryGetReceivedFrame()` sprawdza CRC każdej ramki i domyka ramkę także po ciszy na magistrali. Kolejka chroni odczyt krótką sekcją atomową; przepełnienie usuwa najstarszą ramkę i zwiększa licznik. Szkic dodatkowo sprawdza źródło `10`, adresowanie, usługę, PID i długość odpowiedzi.
+Biblioteka mierzy odstępy między zboczami RX w przerwaniu. Używa bufora 32 ramek i rozmiaru `BS=13` bajtów na ramkę, łącznie z CRC. W odbiorze filtruje pierwszy bajt, dopuszczając `0x6C` i `0x48`; nie jest uniwersalnym rejestratorem wszystkich ramek VPW. `tryGetReceivedFrame()` sprawdza CRC każdej ramki i domyka ramkę także po ciszy na magistrali. Kolejka chroni odczyt krótką sekcją atomową; przepełnienie usuwa najstarszą ramkę i zwiększa licznik. Szkic dodatkowo sprawdza źródło `10`, adresowanie, usługę, PID i długość odpowiedzi.
 
 Nadajnik generuje nominalne impulsy 64 i 128 µs oraz SOF 200 µs. Podczas nadawania odłącza przerwanie RX i sprawdza arbitraż przez odczyt wejścia. Dołączony kod ogranicza się do krótkich ramek i nie obsługuje danych IFR jako osobnego protokołu aplikacyjnego.
 

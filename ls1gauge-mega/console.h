@@ -25,6 +25,14 @@ void handleConsole() {
       continue;
     }
     line[length] = 0;
+    if (!overflow && length == 3 && strcmp_P(line, PSTR("VPW")) == 0) {
+      char report[64];
+      int n = snprintf_P(report, sizeof(report), PSTR("dpid=%u fe=%u fd=%u fail=%u err=%u\n"),
+                         (unsigned)(VPW_DPID_ENABLED ? dpid.state : VpwDpid::LEGACY),
+                         dpid.packets[0], dpid.packets[1], dpid.failures, dpid.lastError);
+      if (n > 0 && n < (int)sizeof(report) && Serial.availableForWrite() >= n)
+        Serial.write((const uint8_t*)report, n);
+    }
     if (!overflow && length == 3 && strcmp_P(line, PSTR("MEM")) == 0) {
       char report[64];
       int n = snprintf_P(report, sizeof(report), PSTR("ram=%d min=%u loop=%lu crc=%u drop=%u\n"),

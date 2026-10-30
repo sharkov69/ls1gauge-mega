@@ -5,7 +5,7 @@
 #define STORAGE_SIZE 32
 #define STORAGE_MASK (STORAGE_SIZE-1)
 #define STORAGE_RESET 0xFF
-#define BS               8
+#define BS               13 // 12-byte DPID data or 13-byte echoed rejection, including CRC.
 
 class StorageItem
 {

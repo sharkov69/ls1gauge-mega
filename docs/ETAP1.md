@@ -1,5 +1,7 @@
 # Etap 1: VPW, pętla i pamięć
 
+Raport etapu 1. Późniejszą zmianę odczytu na pakiety i aktualny pomiar pamięci opisuje [DPID.md](DPID.md).
+
 Zmiany dotyczą Mega 2560 i tego samego P59, który obsługiwał bazowy wsad. Zachowano piny, PID-y, przeliczniki, format CSV i binarny POST. Nie włączono DPID ani szybszego trybu magistrali. Na prośbę autora średnia ruchoma AFR obu sond szerokopasmowych obejmuje teraz 4 zamiast 10 próbek. Pierwsza próbka nadal wypełnia cały filtr, a wartości spoza 1029–1911 zastępuje 1475.
 
 ## Pamięć
