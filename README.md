@@ -2,9 +2,11 @@
 
 Projekt wskaźników i rejestratora danych samochodowych na Arduino Mega 2560. Program odpytuje sterownik przez J1850 VPW, wyświetla parametry na dwóch ekranach GC9A01A, zapisuje logi CSV na karcie SD i wysyła paczki binarne przez modem. Odczytuje też temperatury, wilgotność i pozycję GPS.
 
-Gałąź zawiera etap 1 usprawnień dla tego samego sterownika P59: poprawiony odbiór VPW, obsługę modemu bez aktywnego oczekiwania mniejsze zużycie SRAM oraz odczyt 11 kanałów P59 w dwóch pakietach DPID. Bazowy wsad działał na urządzeniu autora. Nową wersję sprawdzono testami hosta i kompilacją Mega 2560; wymaga jeszcze próby na sprzęcie.
+Gałąź zawiera etap 1 usprawnień dla tego samego sterownika P59: poprawiony odbiór VPW, obsługę modemu bez aktywnego oczekiwania mniejsze zużycie SRAM oraz odczyt 11 kanałów P59 w dwóch pakietach DPID. Bazowy wsad działał na urządzeniu autora. Autor potwierdził działanie DPID na P59. Przyspieszenie TFT/SD/LTE sprawdzono testami hosta i kompilacją Mega 2560; te ostatnie zmiany wymagają próby na sprzęcie.
 
 ## Dokumentacja
+
+- [Szybszy ekran, SD i LTE](docs/SZYBKIE_LOGOWANIE.md): aktualne interwały, CSV, zgodność API i RAM.
 
 - [Dwa pakiety P59](docs/DPID.md): podział kanałów, start, powrót do legacy, diagnostyka i pamięć.
 

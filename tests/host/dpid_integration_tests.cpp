@@ -8,7 +8,7 @@ inline long random(long a,long){return a;}
 #define min(a,b) ((a)<(b)?(a):(b))
 #define max(a,b) ((a)>(b)?(a):(b))
 uint8_t pause=75;
-uint16_t counter=0,counter2=0;
+uint16_t counter=0;
 #include "../../ls1gauge-mega/cmd.h"
 static int failures=0;
 #define CHECK(c) do{if(!(c)){printf("FAIL line %d: %s\n",__LINE__,#c);++failures;}}while(0)
@@ -40,21 +40,11 @@ int main(){
   fe[5]=0;fe[6]=0;fe[2]=0x11;inject(fe,12);CHECK(cmd[RPM].wartosc==2000);
   fe[2]=0x10;inject(fe,11);CHECK(cmd[RPM].wartosc==2000);
   dpid=VpwDpid();dpid.ecuSeen();lastSend=0;lastRxEnd=101;czas=100;testUs=101000;
-  testStepUs=1;pins[3]=HIGH;auto oldTx=counter2;send();testStepUs=0;
-  CHECK(counter2==oldTx); // Fresh RX must not look 65535 ms old after clock advance.
+  testStepUs=1;pins[3]=HIGH;auto previousSend=lastSend;send();testStepUs=0;
+  CHECK(lastSend==previousSend); // Fresh RX must not look 65535 ms old after clock advance.
   counter=0;dpid.state=VpwDpid::STREAM;
   fe[2]=0x10;
   for(int i=0;i<300;++i){inject(fe,12);inject(fd,12);}
   CHECK(counter==3300); // 5 Hz * 60 seconds * eleven decoded channel samples.
-  counter2=0;testStepUs=1;pins[3]=HIGH;
-  uint8_t start[]={0x6c,0x10,0xf1,0x2a,0x14,0xfe,0xfd,0xfe,0xfd};
-  CHECK(transmitVpw(start,sizeof(start)));CHECK(counter2==11); // Repeated IDs aren't extra channels.
-  uint8_t keep[]={0x6c,0x10,0xf1,0x3f};
-  CHECK(transmitVpw(keep,sizeof(keep)));CHECK(counter2==11);
-  uint8_t definition[]={0x6c,0x10,0xf1,0x2c,0xfe,0x4a,0,0x0c,0xff,0xff};
-  CHECK(transmitVpw(definition,sizeof(definition)));CHECK(counter2==11);
-  CHECK(transmitVpw(cmd_rpm,sizeof(cmd_rpm)));CHECK(counter2==12);
-  pins[3]=LOW;CHECK(!transmitVpw(cmd_rpm,sizeof(cmd_rpm)));CHECK(counter2==12);
-  testStepUs=0;
   printf("DPID integration failures: %d\n",failures);return failures?1:0;
 }

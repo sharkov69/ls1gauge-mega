@@ -5,7 +5,7 @@
 #include <sstream>
 #define FILE_WRITE 1
 #define O_RDONLY 0
-struct FakeDiskData { std::vector<uint8_t> bytes; std::string text; bool error=false; };
+struct FakeDiskData { std::vector<uint8_t> bytes; std::string text; bool error=false; unsigned syncs=0; };
 inline std::map<std::string,std::shared_ptr<FakeDiskData>> disk;
 struct File {
   std::shared_ptr<FakeDiskData> data;
@@ -24,6 +24,7 @@ struct File {
   void println(){print('\n');}
   void println(const char* s){print(s);println();}
   bool getWriteError(){return data&&data->error;}
+  bool sync(){if(!data)return false;++data->syncs;return !data->error;}
 };
 struct SdFat {
   bool exists(const char* name){return disk.count(name)!=0;}

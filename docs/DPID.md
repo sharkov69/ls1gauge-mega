@@ -22,16 +22,13 @@ Offset liczony od pierwszego bajtu danych za identyfikatorem pakietu:
 
 Tryb `2A 14` pochodzi z implementacji tego samego P59 w `codex-p59-scanner`. W tym wzorcu ECU wysyła każdy pakiet nominalnie co około 200 ms, czyli około 5 aktualizacji/s każdego kanału. Wersja Arduino wymaga potwierdzenia okresu na samochodzie. Normalna praca potrzebuje około 10 odpowiedzi danych/s i podtrzymania sesji co 2 s.
 
-Ekrany nadal odświeżają parametry co 400 ms, logger zapisuje średnią co dwa impulsy 1 Hz, a oba AFR używają filtra 4 próbek. Szybsza akwizycja nie zmienia częstotliwości zapisu CSV ani formatu POST.
+TFT1 odświeża się docelowo co 100 ms, szybki CSV zapisuje stan co 200 ms, a LTE wysyła 30 rekordów po około 30 s. Szczegóły i pomiary pamięci: [SZYBKIE_LOGOWANIE.md](SZYBKIE_LOGOWANIE.md). Oba AFR nadal używają filtra 4 próbek.
 
-### Liczniki TX/RX na ekranie
+### Licznik RX na ekranie
 
-Nazwy pozostają `TX/RX`, ale jednostką jest liczba wartości kanałów, zamiast liczby ramek. RX dodaje 5 za poprawnie odebrany FE, 6 za FD i 1 za zwykłą odpowiedź PID. Liczy próbki wejściowe przed uśrednianiem AFR, nie rekordy CSV. Przy 5 Hz obu pakietów wynik nominalny wynosi `(5 + 6) × 5 × 60 = 3300` próbek/min, około 4,1 razy więcej niż obserwowane wcześniej 800. Rzeczywisty wynik zależy od okresu ECU i utraty ramek.
+RX dodaje 5 za poprawny FE, 6 za FD i 1 za zwykłą odpowiedź PID. Liczy odebrane wartości przed uśrednianiem AFR, nie rekordy CSV. Pomiar TX i jego pole usunięto. Czterocyfrowy RX sumuje 20 przedziałów nominalnie po 3 s; opóźnienia pętli mogą wydłużyć okno ponad minutę. Demo nie dodaje losowych próbek. Liczniki fe/fd w terminalu nadal dotyczą pakietów od uruchomienia.
 
-TX liczy kanały objęte udanym wysłaniem żądania: pojedynczy PID dodaje 1, a START obu pakietów dodaje 11, bez podwójnego liczenia powtórzonych identyfikatorów. Definicje, STOP i keepalive nie zwiększają TX. Kolejne cykliczne odpowiedzi nie wymagają nowych żądań, więc TX po rozruchu może wynosić 0 przy wysokim RX. Nie jest to licznik potwierdzeń ECU ani przewidywanej liczby przyszłych próbek.
-
-Okno nadal obejmuje 20 przedziałów po około 3 s, odświeżanych co 3 s; przez pierwszą minutę dopiero się wypełnia. Liczniki i przedziały mają teraz 16 bitów, a oba pola mieszczą cztery cyfry. Demo nie dopisuje już losowych próbek do RX. Liczniki `fe` i `fd` w terminalu nadal liczą pakiety od uruchomienia, niezależnie od statystyki ekranowej.
-
+Przy 5 Hz obu pakietów wychodzi 3300 wartości/min, a przy 10 Hz 6600. START powtarza identyfikatory FE/FD; jego rzeczywisty okres na P59 wymaga pomiaru. Autor potwierdził działanie DPID na urządzeniu i odczyt RX w okolicach 7000, ale nie potwierdził jeszcze okresu transmisji.
 ## Start i powrót do legacy
 
 1. Mega rozpoczyna od pojedynczych zapytań. Pierwsza poprawna odpowiedź rozpoznanego PID potwierdza obecność ECU.
@@ -82,6 +79,6 @@ Sam DPID dodaje 213 B statycznego SRAM, głównie przez powiększenie 32-element
 
 Pięć programów testowych hosta przechodzi: VPW, modem, SD/BMP, automat DPID i integracja z dekoderem. Nowe testy obejmują ramki 12/13 bajtów, wszystkie definicje, potwierdzenia, obcy ECU, złe długości, start, keepalive, timeout, zanik jednego pakietu, STOP, spóźniony strumień, zajęty TX, zawinięcie czasu i zgodność 11 wartości z legacy. Przegląd kodu objął także odstęp TX po RX. Uruchomienie: `./tests/run-host-tests.ps1`.
 
-Nie wgrywano firmware ani nie mierzono magistrali. Do próby: wyłącz demo, sprawdź `dpid=4`, przyrost obu liczników oraz zgodność wartości z legacy. Zmierz okres FE/FD i liczniki CRC/drop przy DHT, odświeżaniu TFT i logowaniu. DHT nadal może blokować przerwania, a SD/TFT wykonują operacje synchroniczne.
+Autor potwierdził działanie DPID na sprzęcie; okresu magistrali nie zmierzono. Późniejsze zmiany harmonogramu wymagają osobnej próby. Do próby: wyłącz demo, sprawdź `dpid=4`, przyrost obu liczników oraz zgodność wartości z legacy. Zmierz okres FE/FD i liczniki CRC/drop przy DHT, odświeżaniu TFT i logowaniu. DHT nadal może blokować przerwania, a SD/TFT wykonują operacje synchroniczne.
 
 Źródła implementacji: [MpviDynamicPlan.cs](https://github.com/sharkov69/codex-p59-scanner/blob/master/p59-session-fix/src/Scanner.Agent/Hardware/MpviDynamicPlan.cs) i [MpviLiveSource.Dynamic.cs](https://github.com/sharkov69/codex-p59-scanner/blob/master/p59-session-fix/src/Scanner.Agent/Hardware/MpviLiveSource.Dynamic.cs), odczytane 2026-10-30. Zmiana dotyczy diagnostyki, nie zapisu kalibracji ani Flash ECU.

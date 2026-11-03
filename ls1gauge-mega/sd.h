@@ -14,7 +14,7 @@ LogEntry logBuffer[LOG_ENTRIES];
 //LogEntry logHttpBuffer[LOG_ENTRIES];
 uint8_t logIndex = 0;
 uint16_t logGeneration = 0;
-#define SREDNIA 2
+#define SREDNIA 1 // One RTC 1 Hz snapshot: 30 records per ~30-second LTE upload.
 int32_t sums[CMD_SIZE+2] = {0};
 uint8_t count = 0;
 
@@ -48,36 +48,49 @@ void addLogEntry() {
 }
 
 
-// Write one record per loop; the acquisition buffer remains the only full log buffer.
+// Independent SD snapshots. The 30-record buffer above belongs only to LTE.
+// No queue/catch-up: slow storage must not cause a burst of duplicate snapshots.
 File sdLogFile;
-uint8_t sdNext = 0, sdCount = 0;
-uint16_t sdGeneration = 0, sdYear = 0, sdErrors = 0;
-uint8_t sdMonth = 0;
-bool sdPending = false;
-void dumpLogToSD() {
-  if (sdPending) { sdLogFile.close(); ++sdErrors; }
-  DateTime timestamp = rtc.now();
-  sdYear = timestamp.year(); sdMonth = timestamp.month();
-  char filename[13];
-  snprintf(filename, sizeof(filename), "l-%02d%02d%02d.csv", sdYear % 100, sdMonth, timestamp.day());
-  bool newFile = !SD.exists(filename);
-  sdLogFile = SD.open(filename, FILE_WRITE);
-  sdPending = (bool)sdLogFile;
-  if (!sdPending) { ++sdErrors; return; }
-  sdGeneration = logGeneration; sdNext = 0; sdCount = logIndex;
-  if (newFile) sdLogFile.println(F("Datetime,Air Temp,Manifold Pressure (bar),TPS (%),Battery (V),AFR Bank 2,Speed (km/h),Transmission Temp,Oil Pressure(bar),Engine RPM,Coolant Temp,AFR Bank 1,Vent Temp, Vent  Humidity(%), Outside Temp, Inside Temp, Latitude, Longitude"));
+const uint16_t SD_SAMPLE_MS = 200, SD_SYNC_MS = 1000, SD_RETRY_MS = 5000;
+uint32_t sdLastSample = 0, sdLastSync = 0, sdFailureSince = 0, sdRows = 0;
+uint16_t sdYear = 0, sdErrors = 0;
+uint8_t sdMonth = 0, sdDay = 0;
+bool sdBackoff = false;
+void sdWriteFailed() {
+  ++sdErrors; sdLogFile.close(); sdBackoff = true; sdFailureSince = millis();
 }
 void updateLogToSD() {
-  if (!sdPending) return;
-  // A long SD stall must not silently join records from two generations.
-  if (logGeneration != sdGeneration || logIndex > sdNext) {
-    ++sdErrors; sdLogFile.close(); sdPending = false; return;
+  const uint32_t sampleMs = millis();
+  if (sdBackoff && (uint32_t)(sampleMs - sdFailureSince) < SD_RETRY_MS) return;
+  if ((uint32_t)(sampleMs - sdLastSample) < SD_SAMPLE_MS) return;
+  sdLastSample = sampleMs; sdBackoff = false;
+  DateTime timestamp = rtc.now();
+  // Copy values before disk work; the only per-sample buffer is 42 bytes on stack.
+  LogEntry record = {};
+  record.day = timestamp.day(); record.hour = timestamp.hour();
+  record.minute = timestamp.minute(); record.second = timestamp.second();
+  for (uint8_t i = 0; i < CMD_SIZE; ++i) {
+    record.data[i] = cmd[i].wartosc == -32768 ? 0 : cmd[i].wartosc;
+    if (i == 15 || i == 16) record.data[i+2] = cmd[i].lastValue == -32768 ? 0 : cmd[i].lastValue;
+  }
+  if (sdLogFile && (sdYear != timestamp.year() || sdMonth != timestamp.month() || sdDay != timestamp.day())) {
+    if (!sdLogFile.sync()) { sdWriteFailed(); return; }
+    sdLogFile.close();
+  }
+  if (!sdLogFile) {
+    sdYear = timestamp.year(); sdMonth = timestamp.month(); sdDay = timestamp.day();
+    char filename[13];
+    snprintf(filename, sizeof(filename), "f-%02u%02u%02u.csv", sdYear % 100, sdMonth, sdDay);
+    bool newFile = !SD.exists(filename);
+    sdLogFile = SD.open(filename, FILE_WRITE);
+    if (!sdLogFile) { sdWriteFailed(); return; }
+    sdLastSync = sampleMs;
+    if (newFile) sdLogFile.println(F("Datetime,Uptime_ms,Air Temp,Manifold Pressure (bar),TPS (%),Battery (V),AFR Bank 2,Speed (km/h),Transmission Temp,Oil Pressure(bar),Engine RPM,Coolant Temp,AFR Bank 1,Vent Temp, Vent  Humidity(%), Outside Temp, Inside Temp, Latitude, Longitude"));
   }
   char line[20];
-  const LogEntry& record = logBuffer[sdNext];
   snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d:%02d", sdYear, sdMonth,
            record.day, record.hour, record.minute, record.second);
-  sdLogFile.print(line);
+  sdLogFile.print(line); sdLogFile.print(','); sdLogFile.print(sampleMs);
   for (uint8_t j=0;j<CMD_SIZE;++j) {
     sdLogFile.print(',');
     if (j == 3 || (j >= 11 && j <= 14)) sdLogFile.print(record.data[j] / 10.0, 1);
@@ -86,6 +99,10 @@ void updateLogToSD() {
     else sdLogFile.print(record.data[j]);
   }
   sdLogFile.println();
-  if (sdLogFile.getWriteError()) { ++sdErrors; sdLogFile.close(); sdPending = false; return; }
-  if (++sdNext >= sdCount) { sdLogFile.close(); sdPending = false; }
+  if (sdLogFile.getWriteError()) { sdWriteFailed(); return; }
+  if ((uint32_t)(sampleMs - sdLastSync) >= SD_SYNC_MS) {
+    if (!sdLogFile.sync()) { sdWriteFailed(); return; }
+    sdLastSync = sampleMs;
+  }
+  ++sdRows;
 }

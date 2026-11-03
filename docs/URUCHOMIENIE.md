@@ -65,7 +65,7 @@ Zastąp datę i godzinę czasem lokalnym, który chcesz wyświetlać. Parser wym
 
 ### Karta SD i obrazy
 
-Logi trafiają do katalogu głównego karty. Program nie formatuje karty; przygotuj ją w systemie plików obsługiwanym przez wybraną konfigurację SdFat, np. FAT32.
+Szybkie logi f-YYMMDD.csv trafiają do katalogu głównego karty. Kolumnę Uptime_ms, zapis co 200 ms i diagnostykę SD opisuje [SZYBKIE_LOGOWANIE.md](SZYBKIE_LOGOWANIE.md). Program nie formatuje karty; przygotuj ją w systemie plików obsługiwanym przez wybraną konfigurację SdFat, np. FAT32.
 
 Opcja `Show pictures` wyszukuje do 12 plików `.bmp` w katalogu głównym. Przygotuj nieskompresowane obrazy BMP 24-bit, z nagłówkiem DIB 40 bajtów, dodatnią wysokością i wymiarami do 240 × 240. Użyj krótkich nazw 8.3, np. `foto01.bmp`; bufor nazwy ma tylko 14 bajtów wraz ze ścieżką i zakończeniem. Kod sprawdza wymiary przed konwersją do `uint8_t`; odrzuca większe obrazy i przerywa odczyt uciętego pliku.
 

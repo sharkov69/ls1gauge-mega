@@ -25,6 +25,13 @@ void handleConsole() {
       continue;
     }
     line[length] = 0;
+    if (!overflow && length == 2 && strcmp_P(line, PSTR("SD")) == 0) {
+      char report[64];
+      int n = snprintf_P(report, sizeof(report), PSTR("sd_rows=%lu errors=%u interval_ms=%u\n"),
+                         sdRows, sdErrors, SD_SAMPLE_MS);
+      if (n > 0 && n < (int)sizeof(report) && Serial.availableForWrite() >= n)
+        Serial.write((const uint8_t*)report, n);
+    }
     if (!overflow && length == 3 && strcmp_P(line, PSTR("VPW")) == 0) {
       char report[64];
       int n = snprintf_P(report, sizeof(report), PSTR("dpid=%u fe=%u fd=%u fail=%u err=%u\n"),

@@ -5,7 +5,7 @@
   uint16_t normColor;
 };
 
-const DisplayField fields[14] PROGMEM = {
+const DisplayField fields[13] PROGMEM = {
   {155, 140, 35, 18,   -1, 0, 2, 3, GC9A01A_WHITE},  // AIR   = 0
   {175, 100, 35, 18,   -1, 2, 2, 3, GC9A01A_WHITE},  // MAP   = 1
   { 70,  80, 35, 18,   89, 0, 2, 3, GC9A01A_WHITE},  // TPS   = 2
@@ -18,18 +18,18 @@ const DisplayField fields[14] PROGMEM = {
   {155, 160, 35, 18,   99, 0, 2, 3, GC9A01A_WHITE},  // WATER = 9
   { 70, 100, 50, 18,   -1, 2, 2, 3, GC9A01A_WHITE},  // O2    = 10
 
-  {140, 225, 25, 18,   -1, 0, 1, 4, GC9A01A_YELLOW}, // 11: RX channel samples/min
-  {100, 225, 25, 18,   -1, 0, 1, 4, GC9A01A_YELLOW}, // 12: TX requested channels/min
-  {125, 200, 47, 18,   -1, 1, 2, 3, GC9A01A_WHITE}   // 13: bateria w drugim widoku
+  {112, 225, 25, 18,   -1, 0, 1, 4, GC9A01A_YELLOW}, // 11: RX channel samples/min
+  {125, 200, 47, 18,   -1, 1, 2, 3, GC9A01A_WHITE}   // 12: bateria w drugim widoku
 };
 
 void display(uint8_t id, int16_t value) {
-  if (id >= 14) return;
+  if (id >= 13) return;
   if (value == -32768) value = 0;
 
-  if (id <= 10) {
-    if (value == cmd[id].lastValue) return;
-    cmd[id].lastValue = value;
+  if (id <= 10 || id == 12) {
+    uint8_t channel = id == 12 ? (uint8_t)BATT : id;
+    if (value == cmd[channel].lastValue) return;
+    cmd[channel].lastValue = value;
   }
 
   DisplayField field;
@@ -96,8 +96,7 @@ void drawGUI() {
   tft.setCursor(155, 180); tft.print(F("  0")); tft.write(0xF7); tft.println(F("C"));
 
   tft.setTextSize(1); tft.setTextColor(GC9A01A_YELLOW);
-  tft.setCursor(66, 225); tft.print(F("TX/RX"));
-  tft.setCursor(130, 225); tft.print('/');
+  tft.setCursor(90, 225); tft.print(F("RX"));
   wdt_reset();
 }
 
@@ -122,8 +121,7 @@ void drawGUI2() {
   tft.setCursor(155, 180); tft.print(F("  0")); tft.write(0xF7); tft.println(F("C"));
   tft.setCursor(72, 200); tft.println(F("Bat:"));
   tft.setTextSize(1); tft.setTextColor(GC9A01A_YELLOW);
-  tft.setCursor(66, 225); tft.print(F("TX/RX"));
-  tft.setCursor(130, 225); tft.print('/');
+  tft.setCursor(90, 225); tft.print(F("RX"));
   wdt_reset();
 }
 

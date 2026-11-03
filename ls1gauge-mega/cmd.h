@@ -152,7 +152,6 @@ uint16_t lastSend = 0;
 bool transmitVpw(uint8_t* data, uint8_t size) {
   bool sent = vpw.send(data, size, 1);
   lastSend = (uint16_t)millis();
-  if (sent) counter2 += vpwRequestedSamples(data, size);
   return sent;
 }
 void send(){

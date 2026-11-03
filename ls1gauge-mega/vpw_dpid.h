@@ -21,21 +21,6 @@ inline uint8_t dpidChannelCount(uint8_t packet) {
   return count;
 }
 
-// Count requested channel values, not transport/control frames. A cyclic START
-// counts each configured channel once; later autonomous samples belong to RX.
-inline uint8_t vpwRequestedSamples(const uint8_t* data, uint8_t size) {
-  if (size == 5 && data[3] == 0x01) return 1;
-  if (size == 7 && data[3] == 0x22) return 1;
-  if (size != 9 || data[3] != 0x2a || data[4] != 0x14) return 0;
-  uint8_t mask = 0, count = 0;
-  for (uint8_t i = 5; i < 9; ++i) {
-    if (data[i] != 0xfe && data[i] != 0xfd) continue;
-    uint8_t packet = (uint8_t)(0xfe - data[i]);
-    if (!(mask & (1 << packet))) { mask |= (uint8_t)(1 << packet); count += dpidChannelCount(packet); }
-  }
-  return count;
-}
-
 // Wire frames include the header but omit CRC on TX. RX size includes CRC;
 // J1850VPW must validate it before calling receive(). No allocations or waits.
 class VpwDpid {

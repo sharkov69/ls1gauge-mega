@@ -42,9 +42,9 @@ Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 #define TFT2_RST   13
 Adafruit_GC9A01A tft2(TFT2_CS, TFT2_DC, TFT2_RST);
 
-uint16_t stats[2][ILE] = {0};
+uint16_t stats[ILE] = {0};
 uint8_t current{};
-uint16_t counter{}, counter2{};
+uint16_t counter{};
 uint16_t lastStats{};
 
 constexpr int16_t KAT = 210;
@@ -56,7 +56,7 @@ int16_t lastKat2 = KAT;
 //#endif
 
 uint16_t lastUpdate = 0;
-uint16_t refreshInterval = 400;
+uint16_t refreshInterval = 100;
 uint16_t refreshInterval2 = 3000;
 uint16_t guiStartTime;
 bool guiStarted = false;
@@ -232,12 +232,11 @@ void loop(void) {
     //refreshInterval = 500;
   } //else {refreshInterval = 250;}
 
-  if (cmd[RPM].wartosc > 6000) {cmd[RPM].wartosc = 6000;}
-  if (cmd[RPM].wartosc < 0) {cmd[RPM].wartosc = 0;}
-  cmd[RPM].wartosc = ((cmd[RPM].wartosc + 12) / 25) * 25;
+  // Presentation limits must not overwrite the measurements used by SD/LTE.
+  const int16_t displayRpm = ((constrain(cmd[RPM].wartosc, 0, 6000) + 12) / 25) * 25;
   if (guiMode) {
 display(SPEED, cmd[SPEED].wartosc);
-display(RPM,   cmd[RPM].wartosc);
+display(RPM,   displayRpm);
 display(TPS,   cmd[TPS].wartosc);
 display(BATT,  cmd[BATT].wartosc);
 display(O2,    cmd[O2].wartosc);
@@ -246,19 +245,23 @@ display(O22,   cmd[O22].wartosc);
 display(SPARK, cmd[SPARK].wartosc);
   } else {
 
+  char buf[8];
+  int16_t x1, y1;
+  uint16_t w, h;
+  const int16_t displaySpeed = max((int16_t)0, cmd[SPEED].wartosc);
+  if (displaySpeed != cmd[SPEED].lastValue) {
  tft.setTextSize(3);
  tft.setTextColor(GC9A01A_WHITE);
  tft.fillRect(90, 50, 80, 22, GC9A01A_BLACK);
-  if (cmd[SPEED].wartosc < 0) {cmd[SPEED].wartosc = 0;}
-  char buf[8];
-  snprintf(buf, sizeof(buf), "%d", cmd[SPEED].wartosc);
-  int16_t x1, y1;
-    uint16_t w, h;
+  snprintf(buf, sizeof(buf), "%d", displaySpeed);
     tft.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
     tft.setCursor(119 - w / 2, 50);
     tft.print(buf);
+    cmd[SPEED].lastValue = displaySpeed;
+  }
 
-  if (cmd[RPM].wartosc > 4499) {
+  if (displayRpm != cmd[RPM].lastValue) {
+  if (displayRpm > 4499) {
     tft.setTextColor(GC9A01A_RED);
   } else { tft.setTextColor(GC9A01A_GREEN);}
 
@@ -266,12 +269,14 @@ display(SPARK, cmd[SPARK].wartosc);
   tft.setFont(&Neue_Leights28pt7b);
   
     tft.fillRect(50, 90, 140, 45, GC9A01A_BLACK);
-    snprintf(buf, sizeof(buf), "%d", cmd[RPM].wartosc);
+    snprintf(buf, sizeof(buf), "%d", displayRpm);
     tft.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
     tft.setCursor(119 - w / 2, 130);
     tft.print(buf);
     tft.setFont();
-    display(13, cmd[BATT].wartosc);
+    cmd[RPM].lastValue = displayRpm;
+  }
+    display(12, cmd[BATT].wartosc);
   }
 
 display(AIR,   cmd[AIR].wartosc);
@@ -282,7 +287,7 @@ display(TRANS, cmd[TRANS].wartosc);
 
   int16_t zielony = KAT + map(3500, 0, 6000, 0, 300);
   int16_t zolty = KAT + map(4500, 0, 6000, 0, 300);
-  int16_t kat = KAT + map(cmd[RPM].wartosc, 0, 6000, 0, 300);
+  int16_t kat = KAT + map(displayRpm, 0, 6000, 0, 300);
   if (kat > lastKat) {
     int16_t from = lastKat;
     if (from < zielony) {
@@ -314,24 +319,18 @@ if ((uint16_t)(czas - lastStats) >= refreshInterval2) {
     if (current >= ILE) current = 0;
 
     // wpisz nową wartość do historii
-    stats[0][current] = counter;
+    stats[current] = counter;
     counter = 0;
-    stats[1][current] = counter2;
-    counter2 = 0;
     // policz sumę z ostatnich 60 sek
     uint16_t sumrx = 0;
-    uint16_t sumtx = 0;
     for (uint8_t i = 0; i < ILE; i++) {
-      sumrx += stats[0][i];
-      sumtx += stats[1][i];
+      sumrx += stats[i];
     }
        //#ifdef DEBUG 
       //DBG(F("RX: Avg frame per 60 sec: ")); DBGL(sum);
-      //DBG(F("TX: Avg frame per 60 sec: ")); DBGL(sum2);
       //#endif 
       if (guiStarted) {
       display(11, sumrx);
-      display(12, sumtx);
 
       }
 
@@ -500,7 +499,6 @@ cmd[TEMP_IN].wartosc = (int16_t)((sensors.getTemp(tempIn)  * 10 + 64) >> 7);
     }
     if (logIndex >= LOG_ENTRIES) {
       ++logGeneration;
-      dumpLogToSD();
       //memcpy(logHttpBuffer, logBuffer, sizeof(logBuffer));
       if (modemInitDone()) {
       startSendLog();
@@ -513,8 +511,8 @@ cmd[TEMP_IN].wartosc = (int16_t)((sensors.getTemp(tempIn)  * 10 + 64) >> 7);
     }
   
   }
-  updateLogToSD();
   read();
+  updateLogToSD();
   handleConsole();
   modemInitTick();
  //DBGL(F("Loop"));
