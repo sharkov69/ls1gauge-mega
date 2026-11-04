@@ -141,6 +141,7 @@ void setup() {
   sprawdzLetni();
   pinMode(sqwPin, INPUT);
   attachInterrupt(digitalPinToInterrupt(sqwPin), sqwISR, FALLING);
+  FsDateTime::setCallback(sdDateTime);
   if (!SD.begin(sdCS,SPI_FULL_SPEED)) {
     DBGL(F("Blad SD!"));
   }

@@ -76,7 +76,7 @@ Demo nadpisuje wybrane pola wartościami losowymi co cykl GUI. Nie wyłącza odp
 
 Bufor LTE zawiera 30 rekordów po 42 B, pobieranych z aktualnego stanu przy obsłużonym impulsie RTC 1 Hz. SREDNIA=1: każdy rekord reprezentuje jeden odczyt, a nie średnią z dwóch sekund. Brak pomiaru -32768 nadal zamienia się na zero.
 
-SD działa niezależnie: co 200 ms zapisuje bieżący zestaw do f-YYMMDD.csv. Nowy CSV ma 19 kolumn: Datetime, Uptime_ms oraz 17 kanałów w kolejności tablicy cmd (AIR, MAP, TPS, BATT, O22, SPEED, TRANS, SPARK/olej, RPM, WATER, O2, TEMP_AC, HUM, TEMP_OUT, TEMP_IN, LAT, LON). Uptime_ms dotyczy tylko SD. Dotychczasowe dzielniki CSV pozostają bez zmian, w tym rozbieżność skali oleju wobec ekranu i jedno miejsce po przecinku dla GPS.
+SD działa niezależnie: co 200 ms zapisuje bieżący zestaw do l-YYMMDD.csv. CSV ma 18 kolumn: Datetime z milisekundami oraz 17 kanałów w kolejności tablicy cmd (AIR, MAP, TPS, BATT, O22, SPEED, TRANS, SPARK/olej, RPM, WATER, O2, TEMP_AC, HUM, TEMP_OUT, TEMP_IN, LAT, LON). Separator to średnik, liczby używają przecinka dziesiętnego. Dotychczasowe dzielniki CSV pozostają bez zmian, w tym rozbieżność skali oleju wobec ekranu. GPS zachowuje sześć miejsc po przecinku. [CSV_EXCEL.md](CSV_EXCEL.md) opisuje import, zegar próbek, datę modyfikacji FAT oraz kopię starego pliku przy niezgodnym nagłówku.
 
 Opis formatu, zachowania przy błędzie, ochrony RAM i nominalnych interwałów: [SZYBKIE_LOGOWANIE.md](SZYBKIE_LOGOWANIE.md). CSV nie jest zapisem każdej ramki DPID. Format daty POST nadal ma wspólny rok/miesiąc paczki; problem paczki przechodzącej przez granicę miesiąca pozostaje w LTE.
 

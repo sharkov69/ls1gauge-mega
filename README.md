@@ -6,6 +6,8 @@ Gałąź zawiera etap 1 usprawnień dla tego samego sterownika P59: poprawiony o
 
 ## Dokumentacja
 
+- [CSV dla Excela i poprawne daty plików](docs/CSV_EXCEL.md): import, wykres XY, milisekundy i zachowanie starych logów.
+
 - [Szybszy ekran, SD i LTE](docs/SZYBKIE_LOGOWANIE.md): aktualne interwały, CSV, zgodność API i RAM.
 
 - [Dwa pakiety P59](docs/DPID.md): podział kanałów, start, powrót do legacy, diagnostyka i pamięć.

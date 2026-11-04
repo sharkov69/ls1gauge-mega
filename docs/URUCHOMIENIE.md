@@ -65,7 +65,7 @@ Zastąp datę i godzinę czasem lokalnym, który chcesz wyświetlać. Parser wym
 
 ### Karta SD i obrazy
 
-Szybkie logi f-YYMMDD.csv trafiają do katalogu głównego karty. Kolumnę Uptime_ms, zapis co 200 ms i diagnostykę SD opisuje [SZYBKIE_LOGOWANIE.md](SZYBKIE_LOGOWANIE.md). Program nie formatuje karty; przygotuj ją w systemie plików obsługiwanym przez wybraną konfigurację SdFat, np. FAT32.
+Szybkie logi l-YYMMDD.csv trafiają do katalogu głównego karty. Format polskiego Excela, jedną kolumnę czasu z milisekundami, daty FAT i zabezpieczenie starych plików opisuje [CSV_EXCEL.md](CSV_EXCEL.md). Interwał pozostaje 200 ms. Program nie formatuje karty; przygotuj ją w systemie plików obsługiwanym przez wybraną konfigurację SdFat, np. FAT32.
 
 Opcja `Show pictures` wyszukuje do 12 plików `.bmp` w katalogu głównym. Przygotuj nieskompresowane obrazy BMP 24-bit, z nagłówkiem DIB 40 bajtów, dodatnią wysokością i wymiarami do 240 × 240. Użyj krótkich nazw 8.3, np. `foto01.bmp`; bufor nazwy ma tylko 14 bajtów wraz ze ścieżką i zakończeniem. Kod sprawdza wymiary przed konwersją do `uint8_t`; odrzuca większe obrazy i przerywa odczyt uciętego pliku.
 
@@ -100,7 +100,7 @@ Włącz `DEBUG`, aby zobaczyć komunikaty na `Serial`. `TXRX` dodatkowo włącza
 | Zegar stoi, brak logów | SQW → D2, podciąganie i impulsy 1 Hz |
 | Brak danych VPW | Interfejs elektryczny, RX D3/TX D5, zgodność PID ze sterownikiem i ustawienie demo |
 | Błędne temperatury DS18B20 | D47, adresy ROM, połączenie OneWire i podciąganie |
-| Brak CSV | CS D53, wspólne SPI, kartę i wybrany wariant SdFat; pierwszy zapis następuje nominalnie po około minucie |
+| Brak CSV | CS D53, wspólne SPI, kartę, licznik błędów komendy SD i ewentualny konflikt kopii .bak; pierwszy zapis następuje w pętli głównej po starcie |
 | Modem powtarza inicjalizację | Zasilanie, UART, SIM, APN, obsługę komend AT; test startowy oczekuje HTTP 403 |
 | Brak wysyłki mimo danych na SD | Zakończenie inicjalizacji modemu, endpoint i odpowiedź HTTP 200 na POST |
 | Błędna skala oleju w CSV | Rozbieżność dzielnika opisana w [formacie danych](DZIALANIE.md) |

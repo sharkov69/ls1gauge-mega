@@ -1,6 +1,12 @@
 
 #include <SdFat.h>
+#include "sd_clock.h"
 SdFat SD;
+void sdDateTime(uint16_t* date, uint16_t* time) {
+  const DateTime stamp = rtc.now();
+  *date = FS_DATE(stamp.year(), stamp.month(), stamp.day());
+  *time = FS_TIME(stamp.hour(), stamp.minute(), stamp.second());
+}
 #define sdCS 53
 #define LOG_ENTRIES 30
 struct LogEntry {
@@ -51,6 +57,33 @@ void addLogEntry() {
 // Independent SD snapshots. The 30-record buffer above belongs only to LTE.
 // No queue/catch-up: slow storage must not cause a burst of duplicate snapshots.
 File sdLogFile;
+SdSampleClock sdClock;
+const char sdCsvHeader[] PROGMEM = "Datetime;Air Temp;Manifold Pressure (bar);TPS (%);Battery (V);AFR Bank 2;Speed (km/h);Transmission Temp;Oil Pressure(bar);Engine RPM;Coolant Temp;AFR Bank 1;Vent Temp;Vent Humidity(%);Outside Temp;Inside Temp;Latitude;Longitude";
+// Exact decimal formatting without a floating-point or line buffer.
+void sdPrintFixed(int32_t value, uint32_t scale) {
+  const uint32_t magnitude = value < 0 ? 0u - (uint32_t)value : (uint32_t)value;
+  if (value < 0) sdLogFile.print('-');
+  sdLogFile.print(magnitude / scale); sdLogFile.print(',');
+  for (uint32_t place = scale / 10; place; place /= 10)
+    sdLogFile.print((char)('0' + (magnitude / place) % 10));
+}
+// 1: matching header, 0: different format, -1: I/O error (never rename).
+int8_t sdCompatibleFile(const char* filename) {
+  File existing = SD.open(filename, O_RDONLY);
+  if (!existing) return -1;
+  bool same = true;
+  for (uint16_t i = 0; ; ++i) {
+    const char expected = pgm_read_byte(sdCsvHeader + i);
+    const int actual = existing.read();
+    if (!expected) {
+      same = actual == '\n' || (actual == '\r' && existing.read() == '\n');
+      break;
+    }
+    if (actual != expected) { same = false; break; }
+  }
+  const bool ioError = existing.getError() != 0;
+  existing.close(); return ioError ? -1 : (same ? 1 : 0);
+}
 const uint16_t SD_SAMPLE_MS = 200, SD_SYNC_MS = 1000, SD_RETRY_MS = 5000;
 uint32_t sdLastSample = 0, sdLastSync = 0, sdFailureSince = 0, sdRows = 0;
 uint16_t sdYear = 0, sdErrors = 0;
@@ -64,7 +97,8 @@ void updateLogToSD() {
   if (sdBackoff && (uint32_t)(sampleMs - sdFailureSince) < SD_RETRY_MS) return;
   if ((uint32_t)(sampleMs - sdLastSample) < SD_SAMPLE_MS) return;
   sdLastSample = sampleMs; sdBackoff = false;
-  DateTime timestamp = rtc.now();
+  sdClock.update(rtc.now().unixtime(), sampleMs);
+  DateTime timestamp(sdClock.seconds);
   // Copy values before disk work; the only per-sample buffer is 42 bytes on stack.
   LogEntry record = {};
   record.day = timestamp.day(); record.hour = timestamp.hour();
@@ -80,22 +114,34 @@ void updateLogToSD() {
   if (!sdLogFile) {
     sdYear = timestamp.year(); sdMonth = timestamp.month(); sdDay = timestamp.day();
     char filename[13];
-    snprintf(filename, sizeof(filename), "f-%02u%02u%02u.csv", sdYear % 100, sdMonth, sdDay);
+    snprintf(filename, sizeof(filename), "l-%02u%02u%02u.csv", sdYear % 100, sdMonth, sdDay);
     bool newFile = !SD.exists(filename);
+    const int8_t compatible = newFile ? 1 : sdCompatibleFile(filename);
+    if (compatible < 0) { sdWriteFailed(); return; }
+    if (!compatible) {
+      char backup[13]; memcpy(backup, filename, sizeof(backup));
+      memcpy(backup + 9, "bak", 4);
+      if (SD.exists(backup) || !SD.rename(filename, backup)) { sdWriteFailed(); return; }
+      newFile = true;
+    }
     sdLogFile = SD.open(filename, FILE_WRITE);
     if (!sdLogFile) { sdWriteFailed(); return; }
     sdLastSync = sampleMs;
-    if (newFile) sdLogFile.println(F("Datetime,Uptime_ms,Air Temp,Manifold Pressure (bar),TPS (%),Battery (V),AFR Bank 2,Speed (km/h),Transmission Temp,Oil Pressure(bar),Engine RPM,Coolant Temp,AFR Bank 1,Vent Temp, Vent  Humidity(%), Outside Temp, Inside Temp, Latitude, Longitude"));
+    if (newFile) {
+      for (uint16_t i = 0; pgm_read_byte(sdCsvHeader + i); ++i)
+        sdLogFile.print((char)pgm_read_byte(sdCsvHeader + i));
+      sdLogFile.println();
+    }
   }
-  char line[20];
-  snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d:%02d", sdYear, sdMonth,
-           record.day, record.hour, record.minute, record.second);
-  sdLogFile.print(line); sdLogFile.print(','); sdLogFile.print(sampleMs);
+  char line[24];
+  snprintf(line, sizeof(line), "%04u-%02u-%02u %02u:%02u:%02u,%03u", sdYear, sdMonth,
+           record.day, record.hour, record.minute, record.second, sdClock.fraction);
+  sdLogFile.print(line);
   for (uint8_t j=0;j<CMD_SIZE;++j) {
-    sdLogFile.print(',');
-    if (j == 3 || (j >= 11 && j <= 14)) sdLogFile.print(record.data[j] / 10.0, 1);
-    else if (j == 1 || j == 7 || j == 4 || j == 10) sdLogFile.print(record.data[j] / 100.0, 1);
-    else if (j == 15 || j == 16) sdLogFile.print(decodeCoord(record.data[j], record.data[j+2]), 1);
+    sdLogFile.print(';');
+    if (j == 3 || (j >= 11 && j <= 14)) sdPrintFixed(record.data[j], 10);
+    else if (j == 1 || j == 7 || j == 4 || j == 10) sdPrintFixed(record.data[j], 100);
+    else if (j == 15 || j == 16) sdPrintFixed((int32_t)(((uint32_t)(uint16_t)record.data[j+2] << 16) | (uint16_t)record.data[j]), 1000000);
     else sdLogFile.print(record.data[j]);
   }
   sdLogFile.println();
