@@ -25,6 +25,7 @@ void handleConsole() {
       continue;
     }
     line[length] = 0;
+    if (!overflow) modemDebugCommand(line);
     if (!overflow && length == 2 && strcmp_P(line, PSTR("SD")) == 0) {
       char report[64];
       int n = snprintf_P(report, sizeof(report), PSTR("sd_rows=%lu errors=%u interval_ms=%u\n"),

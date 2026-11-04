@@ -99,6 +99,7 @@ void setup() {
 
   Serial.begin(115200);
   Serial1.begin(115200);
+  modemDebugLoad();
   modemDebugNumber('B','O',modemDebugResetFlags);
   pinMode(12,OUTPUT);
   digitalWrite(12, LOW);

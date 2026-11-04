@@ -1,5 +1,7 @@
 #pragma once
-// Set to 1 for USB Serial diagnostics at 115200. No binary HTTP payload logging.
+// Compile support in; runtime DEBUG ON/OFF commands persist the state in EEPROM.
+// Set to 0 only to remove diagnostic code entirely (USB commands unavailable).
 #ifndef DEBUG_MODEM
-#define DEBUG_MODEM 0
+#define DEBUG_MODEM 1
 #endif
+#define EEPROM_MODEM_DEBUG_ADDR 18

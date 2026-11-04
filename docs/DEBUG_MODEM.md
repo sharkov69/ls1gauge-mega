@@ -1,27 +1,51 @@
-# Log startu modemu
+# Log startu modemu: USB i EEPROM
 
-## Włączenie
+Wgraj tę wersję szkicu **raz**. Potem debug włączasz i wyłączasz przez USB, bez ponownej kompilacji. `DEBUG_MODEM=1` w pliku konfiguracyjnym oznacza obecność tej funkcji w programie, a nie aktualne włączenie logowania. Pusty EEPROM oznacza debug OFF.
 
-W `ls1gauge-mega/modem_debug_config.h` zmień `#define DEBUG_MODEM 0` na `#define DEBUG_MODEM 1`, skompiluj i wgraj szkic. Pozostałe przełączniki `DEBUG`, `DEBUGVPW` pozostaw wyłączone: ich stare wydruki nie mają zabezpieczeń tej diagnostyki. Po zakończeniu diagnozy przywróć `DEBUG_MODEM 0`.
+## Menu PowerShell
 
-Log wychodzi przez USB Mega (`Serial`) z prędkością **115200, 8N1**. Port `Serial1` pozostaje połączeniem z modemem. Nie dodano logowania na SD ani zmian komend, timeoutów czy formatu API.
-
-## Zapis do pliku w Windows
-
-1. Rozpakuj ZIP z zachowaniem katalogów i wgraj szkic z włączonym debugiem.
-2. Sprawdź numer COM Arduino w Arduino IDE. Zamknij Monitor portu szeregowego i inne programy używające tego portu.
-3. Otwórz PowerShell w katalogu zawierającym folder `tools` z ZIP-a. Uruchom, zastępując `COM5` swoim portem:
+Zamknij Monitor portu szeregowego Arduino IDE. W PowerShell, z katalogu zawierającego folder `tools`, uruchom:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\capture-modem.ps1 -Port COM5 -Seconds 180
 ```
 
-Przełącznik Bypass dotyczy tylko uruchamianego procesu; skrypt nie zmienia zasad systemowych. Uruchomienie skryptu bez `-Port` wypisze dostępne porty. Nie wymaga Pythona ani dodatkowych pakietów.
+Zastąp COM5 portem Mega. Bez parametru Port skrypt pokaże listę i poprosi o wpisanie numeru. Bypass dotyczy tylko tego procesu, nie zmienia ustawień systemu. Skrypt nie potrzebuje Pythona ani dodatkowych pakietów.
 
-4. Skrypt poda ścieżkę pliku `modem-YYYYMMDD-HHMMSS.log` i pokaże odbierany tekst. Otwarcie portu z DTR może zresetować Mega. Jeśli start nie pojawi się w logu, naciśnij RESET Arduino po rozpoczęciu zbierania. Sam reset Mega nie musi resetować modemu.
-5. Po 180 s skrypt zamknie plik i zwolni port. Możesz też zakończyć go przez Ctrl+C. Istniejącego pliku o tej samej nazwie nie nadpisze.
+Menu:
 
-Prześlij cały `.log`, także gdy modem w końcu wystartował. Dopisz model modemu, sposób zasilania, zachowanie diody i informację, czy reset dotyczył samego Arduino, czy również zasilania modemu. Warto zachować osobne logi nieudanego i udanego startu. Skrypt nie otwiera ani nie resetuje portu, dopóki nie uruchomisz go z `-Port`.
+```text
+1. Wlacz debug i zapisz flage w EEPROM
+2. Rozpocznij zapis logu do pliku (Q konczy)
+3. Wylacz debug i zapisz flage w EEPROM
+0. Zamknij skrypt bez zmiany flagi
+```
+
+1. Wybierz **1**. Poczekaj na `DEBUG ON SAVED`, które potwierdza zapis EEPROM.
+2. Wybierz **2**. Skrypt zapisuje plik `modem-YYYYMMDD-HHMMSS-fff.log`. Jeżeli debug jest OFF, poprosi o wybranie 1; sam go nie włącza.
+3. Aby przechwycić start, naciśnij RESET Mega **po rozpoczęciu zapisu pliku**. Flaga ON przetrwa reset. Reset Mega nie musi resetować modemu; odnotuj, czy odłączałeś także jego zasilanie.
+4. **Q** kończy zbieranie i wraca do menu. Po 180 s następuje to samo. **Nie zmienia to flagi w EEPROM ani nie wyłącza debugowania.**
+5. Wyłącz debug dopiero przez **3** i poczekaj na `DEBUG OFF SAVED`. Możesz też wybrać **0** i pozostawić debug ON na następny start.
+
+Koniec czasu, Q, wyjście i błąd skryptu nigdy nie wysyłają automatycznie DEBUG OFF. Ctrl+C kończy proces zamiast wracać do menu; do normalnego zakończenia zapisu używaj Q. Zamknięcie portu może zmienić DTR, a otwarcie USB może zresetować Mega, lecz nie zmienia zapisanej flagi. Podczas oczekiwania w menu skrypt nie zapisuje danych; bufor odbiorczy PC jest ograniczony, więc pełny log zbieraj opcją 2.
+
+Prześlij cały `.log`, także z nieudanego startu. Dopisz model modemu, sposób zasilania, zachowanie diody i czy resetowałeś samo Arduino, czy również modem. `-OutputFile` pozwala podać własną nazwę; istniejący plik nie jest nadpisywany. Przy kolejnej próbie z tą samą nazwą otrzymasz błąd i wrócisz do menu.
+
+## Komendy i trwałość ustawienia
+
+Możesz użyć także terminala USB 115200, 8N1, z zakończeniem linii:
+
+```text
+DEBUG ON
+DEBUG OFF
+DEBUG STATUS
+```
+
+ON/OFF zmieniają stan bieżący oraz startowy. STATUS tylko odczytuje stan; nie zapisuje EEPROM. Odpowiedzi to `DEBUG ON SAVED`, `DEBUG OFF SAVED` albo `DEBUG SAVE ERROR`. Brak odpowiedzi nie dowodzi, że komenda nie zadziałała; skrypt ponawia ją i zgłasza brak potwierdzenia zamiast udawać sukces.
+
+Ustawienie zajmuje adres **18**: A5 oznacza ON, 5A OFF; inne wartości (w tym pusty bajt FF) uruchamiają OFF. Dotychczasowe ustawienia pod adresami 0–17 pozostają bez zmian. Kod sprawdza gotowość EEPROM przed odczytem/zapisem, zapisuje tylko zmieniony bajt i sprawdza wynik w następnych wywołaniach. Nie czeka w pętli na zakończenie zapisu. SAVED wysyła dopiero po potwierdzeniu stanu i przy wolnym miejscu w USB. Przechowuje jedynie ostatnie żądanie/potwierdzenie, bez rosnącej kolejki. Wyłączenie logowania działa od razu; odcięcie zasilania przed SAVED może pozostawić poprzednią flagę.
+
+Obsługa konsoli następuje w pętli aplikacji; podczas startu sprzętu lub priorytetowego odbioru GPS odpowiedź może się opóźnić. Skrypt ponawia komendę przez maksymalnie 20 s. Nie włączaj starych `DEBUG` i `DEBUGVPW` równocześnie: ich wydruki nie mają zabezpieczeń tej diagnostyki. Binarne dane LTE i tempo SD pozostają bez zmian.
 
 ## Czytanie logu
 
@@ -76,11 +100,6 @@ Każdy wpis mieści się w 63 bajtach. Przed zapisem program sprawdza miejsce na
 
 Nie wypisujemy zawartości POST. Na czas nadawania jego treści i oczekiwania na potwierdzenie wyciszamy także RX, aby nie ujawnić ewentualnego echa tokenu. Po błędzie wyciszenie trwa do ponownej inicjalizacji. Pozostałe odpowiedzi mogą zawierać adres IP i pozycję GPS. Arduino HardwareSerial nie udostępnia tu licznika przepełnień RX; licznik HB dotyczy utraconych wpisów diagnostycznych, nie danych modemu.
 
-Kompilacja Mega / AVR Boards 1.8.8:
+Kompilacja Mega / AVR Boards 1.8.8: Flash **86 858 B**, statyczny SRAM **5463 B**, pozostało **2729 B** na stos/stertę. Runtime ON i OFF mają ten sam rozmiar buforów; OFF pomija formatowanie i wysyłanie logu. Obsługa ustawienia dodaje 5 B SRAM względem wcześniejszej diagnostyki włączonej kompilacyjnie. To pomiar statyczny, nie maksymalny zapas stosu.
 
-| DEBUG_MODEM | Flash | Statyczny SRAM | Pozostało na stos/stertę |
-| --- | ---: | ---: | ---: |
-| 0 | 85 332 B | 5423 B | 2769 B |
-| 1 | 86 376 B | 5458 B | 2734 B |
-
-Sześć programów testowych przechodzi, w tym cały test modemu z debugiem wyłączonym i włączonym: pełny USB, powolny UART modemu, inicjalizacja, GPS, oba POST z CRC, timeouty i odzyskiwanie. Nie wykonano próby na fizycznym modemie. Skrypt sprawdzono składniowo oraz uruchomiono listowanie portów w Windows PowerShell 5.1; nie otwierano portu Arduino ani nie przechwytywano rzeczywistego logu.
+Sześć programów testowych hosta przechodzi, w tym pełny USB, inicjalizacja, GPS, oba POST/CRC, timeouty oraz zapis/powtórzenia/odczyt EEPROM i przywrócenie flagi. Test skryptu pod Windows PowerShell 5.1 używa atrapy portu: potwierdzenia dzielone na fragmenty, timeout, błąd EEPROM, menu oraz brak OFF po zapisie/wyjściu. Nie wykonano próby na fizycznym modemie ani rzeczywistym porcie COM.

@@ -1,5 +1,8 @@
 #include "Arduino.h"
 #include <vector>
+#ifndef DEBUG_MODEM
+#define DEBUG_MODEM 0
+#endif
 #define DBG(...) ((void)0)
 #define DBGL(...) ((void)0)
 #define DBG2(...) ((void)0)
@@ -56,6 +59,35 @@ struct Peer {
 };
 int main(){
 #if DEBUG_MODEM
+    EEPROM.reset();modemDebugLoad();CHECK(!modemDebugEnabled);
+    Serial={};modemDebugRecord('T','E',"disabled");CHECK(Serial.tx.empty());
+    CHECK(!modemDebugCommand("DEBUG ON rubbish"));
+    fakeEepromReady=false;CHECK(modemDebugCommand("DEBUG ON"));
+    modemDebugControlTick();CHECK(modemDebugEnabled&&EEPROM.writes==0&&EEPROM.blocked==0);
+    fakeEepromReady=true;Serial.room=0;modemDebugControlTick();
+    CHECK(EEPROM.writes==1&&EEPROM.bytes[18]==0xa5);CHECK(Serial.tx.empty());
+    modemDebugControlTick();CHECK(EEPROM.blocked==0); // Don't poll EEPROM by blocking reads.
+    fakeEepromReady=true;modemDebugControlTick();CHECK(Serial.tx.empty());
+    Serial.room=63;modemDebugControlTick();CHECK(Serial.tx=="DEBUG ON SAVED\n");
+    Serial={};modemDebugCommand("DEBUG ON");modemDebugControlTick();CHECK(EEPROM.writes==1);
+    modemDebugEnabled=false;modemDebugLoad();CHECK(modemDebugEnabled); // Boot persistence.
+    Serial={};modemDebugCommand("DEBUG OFF");CHECK(!modemDebugEnabled);
+    modemDebugRecord('T','E',"disabled");CHECK(Serial.tx.empty());
+    modemDebugControlTick();CHECK(EEPROM.writes==2);fakeEepromReady=true;
+    modemDebugControlTick();CHECK(Serial.tx=="DEBUG OFF SAVED\n");
+    modemDebugEnabled=true;modemDebugLoad();CHECK(!modemDebugEnabled);
+    Serial={};modemDebugCommand("DEBUG STATUS");modemDebugControlTick();
+    CHECK(Serial.tx=="DEBUG OFF SAVED\n"&&EEPROM.writes==2);
+    Serial={};modemDebugCommand("DEBUG ON");modemDebugControlTick();
+    modemDebugCommand("DEBUG OFF");fakeEepromReady=true;modemDebugControlTick();
+    fakeEepromReady=true;modemDebugControlTick();CHECK(EEPROM.bytes[18]==0x5a&&!modemDebugEnabled);
+    CHECK(EEPROM.blocked==0&&Serial.blockedWrites==0);
+    CHECK(EEPROM.bytes[17]==255&&EEPROM.bytes[19]==255);
+    Serial={};modemDebugCommand("DEBUG ON");modemDebugControlTick();
+    EEPROM.bytes[18]=0x5a;fakeEepromReady=true;modemDebugControlTick();
+    CHECK(Serial.tx=="DEBUG SAVE ERROR\n"); // Never acknowledge a failed read-back as SAVED.
+    Serial={};modemDebugCommand("DEBUG OFF");modemDebugControlTick();
+    modemDebugEnabled=true; // Remaining suite exercises enabled diagnostics.
     testUs=0;testStepUs=0;Serial={};Serial.room=0;
     modemDebugRecord('T','E',"test");
     CHECK(Serial.tx.empty()&&Serial.blockedWrites==0&&modemDebugDropped==1);
