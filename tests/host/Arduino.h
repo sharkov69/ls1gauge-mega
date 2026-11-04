@@ -65,4 +65,4 @@ struct FakeSerial {
     void println(const String& s) {println(s.c_str());}
     void flush() { ++blockedWrites; }
     void inject(const char* s) { while(*s){if(rx.size()<rxCapacity)rx.push_back(*s);else ++droppedRx;++s;} }
-} inline Serial1;
+} inline Serial1, Serial;

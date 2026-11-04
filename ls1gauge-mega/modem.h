@@ -57,6 +57,7 @@ uint8_t stepIdx = 0, tries = 0;
 uint32_t netLastCheck = 0, nextNetCheck = 0;
 uint32_t recoveryQuietSince = 0;
 const uint16_t NET_TIMEOUT = 20000;
+#include "modem_debug.h"
 void modemHttpTick();
 bool modemHttpPending();
 void cancelLogSend();
@@ -72,9 +73,11 @@ void beginAT(const char* flashCommand, const char* flashExpected = AT_OK, uint16
   at.pos = 0; at.length = 0; at.phase = 0;
   at.busy = true; at.result = at.matched = at.ok = at.overflow = false;
   at.since = millis(); at.quietSince = at.since;
+  modemDebugRecord('C','Q',at.command);
 }
 
 void finishAT(bool result) {
+  modemDebugNumber(result ? 'O' : 'E', result ? 'K' : 'R', at.phase);
   at.result = result;
   at.phase = 3; // Drain trailing lines before handing the port to another operation.
   at.since = at.quietSince = millis();
@@ -85,13 +88,13 @@ void pumpAT() {
   const uint32_t now = millis();
   if (at.phase == 0 || at.phase == 3) {
     uint8_t budget = MODEM_BUDGET;
-    while (budget-- && Serial1.available()) { Serial1.read(); at.quietSince = now; }
+    while (budget-- && Serial1.available()) { char c = (char)Serial1.read(); modemDebugRx(c,true); at.quietSince = now; }
     if (at.phase == 3) {
       if ((uint32_t)(now - at.quietSince) >= 50 || (uint32_t)(now - at.since) >= 250) { at.busy = false; at.done = true; }
       return;
     }
     if (Serial1.available()) {
-      if ((uint32_t)(now - at.since) >= at.timeout) finishAT(false);
+      if ((uint32_t)(now - at.since) >= at.timeout) { modemDebugNumber('T','O',at.phase); finishAT(false); }
       return;
     }
     at.phase = 1;
@@ -103,13 +106,14 @@ void pumpAT() {
       Serial1.write((uint8_t)(at.pos < n ? at.command[at.pos] : at.pos == n ? '\r' : '\n'));
       ++at.pos;
     }
-    if (at.pos == n + 2) { at.phase = 2; at.since = now; }
-    else if ((uint32_t)(now - at.since) >= at.timeout) finishAT(false);
+    if (at.pos == n + 2) { modemDebugNumber('T','X',n+2); at.phase = 2; at.since = now; }
+    else if ((uint32_t)(now - at.since) >= at.timeout) { modemDebugNumber('T','O',at.phase); finishAT(false); }
     return;
   }
   uint8_t budget = MODEM_BUDGET;
   while (budget-- && Serial1.available()) {
     char c = (char)Serial1.read();
+    modemDebugRx(c,false);
     if (c == '\r') continue;
     if (c != '\n') {
       if ((size_t)at.length + 1 < sizeof(at.line)) at.line[at.length++] = c;
@@ -117,6 +121,7 @@ void pumpAT() {
       continue;
     }
     at.line[at.length] = 0;
+    if (at.overflow) modemDebugNumber('O','V',at.length);
     if (!at.overflow && at.length) {
       if (strcmp_P(at.line, PSTR("ERROR")) == 0 || strncmp_P(at.line, PSTR("+CME ERROR"), 10) == 0) {
         finishAT(false); return;
@@ -140,7 +145,7 @@ void pumpAT() {
     }
     at.length = 0; at.overflow = false;
   }
-  if ((uint32_t)(now - at.since) >= at.timeout) finishAT(false);
+  if ((uint32_t)(now - at.since) >= at.timeout) { modemDebugNumber('T','O',at.phase); finishAT(false); }
 }
 
 // Definitions and strings stay in Flash; no initialization-time heap allocations.
@@ -172,6 +177,10 @@ void modemInitStart() {
   at.busy = at.done = false;
   stepIdx = tries = 0; initReady = modemOnline = false;
   gpsRequested = false; modemOwner = OWNER_INIT;
+#if DEBUG_MODEM
+  modemDebugMuted = false; modemDebugLength = 0;
+#endif
+  modemDebugNumber('S','T',OWNER_INIT);
 }
 bool modemInitDone() { return initReady; }
 void getGPSInfo() { gpsRequested = true; }
@@ -186,12 +195,14 @@ void recoverModem() {
   initReady = modemOnline = false;
   modemOwner = OWNER_RECOVERY;
   recoveryQuietSince = millis();
+  modemDebugNumber('S','T',OWNER_RECOVERY);
 }
 
 void modemInitTick() {
+  modemDebugTick();
   if (modemOwner == OWNER_RECOVERY) {
     uint8_t budget = MODEM_BUDGET;
-    while (budget-- && Serial1.available()) { Serial1.read(); recoveryQuietSince = millis(); }
+    while (budget-- && Serial1.available()) { char c = (char)Serial1.read(); modemDebugRx(c,true); recoveryQuietSince = millis(); }
     // HTTPDATA advertises a 5000 ms input window. Never send AT command bytes
     // into a possibly active payload window; late DOWNLOAD restarts this guard.
     if ((uint32_t)(millis() - recoveryQuietSince) >= 5500) modemInitStart();
@@ -207,6 +218,7 @@ void modemInitTick() {
       } else if (++tries >= 5) { stepIdx = tries = 0; }
       if (stepIdx >= 17) {
         initReady = modemOnline = true; modemOwner = OWNER_IDLE;
+        modemDebugNumber('S','T',OWNER_IDLE);
         netLastCheck = millis(); nextNetCheck = millis() + 4000;
       }
     } else if (!at.busy) beginAT(st.command, st.expected, 2000);

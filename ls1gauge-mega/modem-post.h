@@ -58,13 +58,19 @@ void modemHttpTick() {
     case SEND_DATA_CMD:
       if (!at.busy && !at.done) snprintf_P(at.command, sizeof(at.command), PSTR("AT+HTTPDATA=%u,5000"), postSize);
       httpStep(nullptr, SEND_DATA_BODY, PSTR("DOWNLOAD"));
-      if (logState == SEND_DATA_BODY) { postOffset = 0; postSince = millis(); }
+      if (logState == SEND_DATA_BODY) {
+        postOffset = 0; postSince = millis();
+        modemDebugNumber('B','S',postSize);
+#if DEBUG_MODEM
+        modemDebugMuted = true; modemDebugLength = 0;
+#endif
+      }
       break;
     case SEND_DATA_BODY: {
       // Do not write more than fits in the UART ring. Never flush synchronously.
       uint8_t budget = MODEM_BUDGET;
       while (budget-- && postOffset < postSize && Serial1.availableForWrite() > 0) Serial1.write(postBin[postOffset++]);
-      if (postOffset == postSize) { postSince = millis(); logState = WAIT_BODY; }
+      if (postOffset == postSize) { modemDebugNumber('B','E',postOffset); postSince = millis(); logState = WAIT_BODY; }
       else if ((uint32_t)(millis() - postSince) >= 4500) { recoverModem(); }
       break;
     }
@@ -77,6 +83,9 @@ void modemHttpTick() {
       }
       if (at.done) {
         bool success = at.result; at.done = false;
+#if DEBUG_MODEM
+        if (success) { modemDebugMuted = false; modemDebugLength = 0; }
+#endif
         if (success) logState = HTTP_ACTION;
         else { recoverModem(); }
       }

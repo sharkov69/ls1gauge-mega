@@ -6,6 +6,8 @@ Gałąź zawiera etap 1 usprawnień dla tego samego sterownika P59: poprawiony o
 
 ## Dokumentacja
 
+- [Diagnostyka startu modemu](docs/DEBUG_MODEM.md): DEBUG_MODEM, zapis portu COM do pliku, kody zdarzeń i RAM.
+
 - [CSV dla Excela i poprawne daty plików](docs/CSV_EXCEL.md): import, wykres XY, milisekundy i zachowanie starych logów.
 
 - [Szybszy ekran, SD i LTE](docs/SZYBKIE_LOGOWANIE.md): aktualne interwały, CSV, zgodność API i RAM.

@@ -8,6 +8,7 @@ enum { LAT=15,LON=16,CMD_SIZE=17 };
 struct CmdValue {volatile int16_t wartosc=0;int16_t lastValue=0;} cmd[17];
 uint16_t czas=0;
 void encodeCoord(float deg,volatile int16_t& low,int16_t& high){int32_t v=(int32_t)(deg*1e6f);low=(int16_t)v;high=(int16_t)(v>>16);}
+int freeRam(){return 2700;}
 #include "../../ls1gauge-mega/modem.h"
 struct DateTime {uint16_t year()const{return 2026;}uint8_t month()const{return 10;}};
 struct {DateTime now(){return {};}} rtc;
@@ -29,8 +30,10 @@ struct Peer {
     unsigned remaining=0;
     void step() {
         testUs+=1000; Serial1.room=2;
+        Serial.room=(testUs/1000)%3==0?0:63; // Slow/disconnected USB must not affect modem.
         modemInitTick();
         CHECK(Serial1.blockedWrites==0);
+        CHECK(Serial.blockedWrites==0);
         auto bytes=Serial1.tx;Serial1.tx.clear();
         for(char c:bytes){
             if(remaining){body+=c;if(--remaining==0){bodies.push_back(body);body.clear();Serial1.inject("\r\nOK\r\n");}continue;}
@@ -52,6 +55,20 @@ struct Peer {
     }
 };
 int main(){
+#if DEBUG_MODEM
+    testUs=0;testStepUs=0;Serial={};Serial.room=0;
+    modemDebugRecord('T','E',"test");
+    CHECK(Serial.tx.empty()&&Serial.blockedWrites==0&&modemDebugDropped==1);
+    Serial.room=63;modemDebugRecord('T','E',"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    CHECK(Serial.tx.size()<=63&&Serial.tx.back()=='\n');CHECK(modemDebugTruncated==1);
+    Serial={};Serial.room=63;
+    for(char c:std::string("+CPIN: READY\r\n"))modemDebugRx(c,false);
+    CHECK(Serial.tx.find("RX +CPIN: READY")!=std::string::npos);
+    Serial={};Serial.room=63;modemDebugMuted=true;
+    for(char c:std::string("ABCDEFGHIJKL\r\n"))modemDebugRx(c,false);
+    CHECK(Serial.tx.empty());modemDebugMuted=false;
+    Serial={};
+#endif
     testUs=0;testStepUs=1000;Serial1.room=64;
     getGPSInfo();
     if(testUs>2000||waitedMs){printf("FAIL: GPS blocks loop (%u us)\n",testUs);return 1;}
@@ -128,5 +145,16 @@ int main(){
     CHECK(Serial1.tx.empty());CHECK(modemOwner==OWNER_RECOVERY);
     testUs=quiet+5500000;modemInitTick();CHECK(modemOwner==OWNER_INIT);
     CHECK(waitedMs==0);
+#if DEBUG_MODEM
+    CHECK(Serial.blockedWrites==0);
+    CHECK(Serial.tx.find("ABCDEFGHIJKL")==std::string::npos);
+    CHECK(Serial.tx.find("CQ AT+CPIN?")!=std::string::npos);
+    CHECK(modemDebugDropped>0);
+    // Full USB during timeout still produces a finished transaction.
+    Serial.room=0;Serial1={};at={};testStepUs=0;testUs=0;testMillisOffset=0;
+    beginAT(PSTR("AT"),AT_OK,100);
+    for(int i=0;i<400&&!at.done;++i){testUs+=1000;pumpAT();}
+    CHECK(at.done&&!at.result&&Serial.blockedWrites==0);
+#endif
     printf("Modem failures: %d\n",failures);return failures?1:0;
 }

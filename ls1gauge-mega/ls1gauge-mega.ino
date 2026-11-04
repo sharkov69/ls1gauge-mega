@@ -1,5 +1,6 @@
 //#define SERIAL_TX_BUFFER_SIZE 256
 #include <avr/wdt.h>
+#include "modem_debug_config.h"
 
 #define LOGO
 bool demo;
@@ -89,12 +90,16 @@ int freeMemory() {
 } */
 
 void setup() {
+#if DEBUG_MODEM
+  const uint8_t modemDebugResetFlags = MCUSR; // Bootloader may already have cleared this.
+#endif
   //cli();
   wdt_disable();
   //sei();
 
   Serial.begin(115200);
   Serial1.begin(115200);
+  modemDebugNumber('B','O',modemDebugResetFlags);
   pinMode(12,OUTPUT);
   digitalWrite(12, LOW);
   //delay(500);
