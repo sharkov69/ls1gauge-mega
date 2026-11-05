@@ -4,7 +4,7 @@ $root=Split-Path $PSScriptRoot -Parent
 Push-Location $root
 try {
     New-Item -ItemType Directory -Force '.build/host' | Out-Null
-    $names=@('vpw_tests','modem_tests','modem_debug_tests','storage_tests','dpid_tests','dpid_integration_tests')
+    $names=@('vpw_tests','modem_tests','modem_debug_tests','storage_tests','four_dpid_tests','dpid_integration_tests')
     foreach($name in $names) {
         @"
 @echo off

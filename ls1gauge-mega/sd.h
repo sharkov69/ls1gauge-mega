@@ -1,6 +1,7 @@
 
 #include <SdFat.h>
 #include "sd_clock.h"
+#include "extra_channels.h"
 SdFat SD;
 void sdDateTime(uint16_t* date, uint16_t* time) {
   const DateTime stamp = rtc.now();
@@ -16,6 +17,7 @@ struct LogEntry {
   uint8_t second;
   int16_t data[CMD_SIZE+2];
 };
+static_assert(CMD_SIZE==17 && sizeof(LogEntry)==42,"Keep the existing LTE API binary layout");
 LogEntry logBuffer[LOG_ENTRIES];
 //LogEntry logHttpBuffer[LOG_ENTRIES];
 uint8_t logIndex = 0;
@@ -58,7 +60,17 @@ void addLogEntry() {
 // No queue/catch-up: slow storage must not cause a burst of duplicate snapshots.
 File sdLogFile;
 SdSampleClock sdClock;
-const char sdCsvHeader[] PROGMEM = "Datetime;Air Temp;Manifold Pressure (bar);TPS (%);Battery (V);AFR Bank 2;Speed (km/h);Transmission Temp;Oil Pressure(bar);Engine RPM;Coolant Temp;AFR Bank 1;Vent Temp;Vent Humidity(%);Outside Temp;Inside Temp;Latitude;Longitude";
+const char sdCsvHeader[] PROGMEM = "Datetime;Intake Air Temp (SAE);Intake Manifold Absolute Pressure (SAE);Throttle Position (SAE);Control Module Voltage;AFR 2;Vehicle Speed (SAE);Trans Fluid Temp;Engine Oil Pressure;Engine RPM (SAE);Engine Coolant Temp (SAE);AFR 1;Vent Temp;Vent Humidity(%);Outside Temp;Inside Temp;Latitude;Longitude"
+ ";Timing Advance (SAE);PRNDL Status;TCC Applied;Trans Shift Mode;Injector Pulse Width Avg. Bank 1;Injector Pulse Width Avg. Bank 2;AC Requested;Fan 1;Knock Retard;Closed Loop Active"
+ ";Fan 2;AC Active;AC Clutch Engaged;AC Disable (Pressure);AC Disable (WOT);Controller Reset;Generator L Term;TCS Request;VATS Status;Traction Control System;Reverse Inhibited;Fuel Trim Learn;O2 B1S1 Ready;O2 B1S2 Ready;O2 B2S1 Ready;O2 B2S2 Ready;Cold Start";
+struct CsvExtraField { uint8_t source, mask, invert; };
+const CsvExtraField csvExtraFields[] PROGMEM = {
+ {X_SA,0,0},{X_PRNDL,0,0},{X_TCC,128,0},{X_SHIFT,0,0},{X_INJ1,0,0},{X_INJ2,0,0},
+ {X_AC,1,0},{X_FAN,1,0},{X_KR,0,0},{X_CL,1,0},
+ {X_FAN,2,0},{X_AC,2,0},{X_AC,8,0},{X_AC,16,0},{X_AC,64,0},{X_AC,4,0},{X_AC,128,0},
+ {X_FAN,128,0},{X_TCC,2,0},{X_TCC,1,1},{X_TCC,16,1},{X_CL,32,0},
+ {X_CL,2,0},{X_CL,4,0},{X_CL,8,0},{X_CL,16,0},{X_CL,64,0}
+};
 // Exact decimal formatting without a floating-point or line buffer.
 void sdPrintFixed(int32_t value, uint32_t scale) {
   const uint32_t magnitude = value < 0 ? 0u - (uint32_t)value : (uint32_t)value;
@@ -121,6 +133,10 @@ void updateLogToSD() {
     if (!compatible) {
       char backup[13]; memcpy(backup, filename, sizeof(backup));
       memcpy(backup + 9, "bak", 4);
+      uint8_t revision=0;
+      while(SD.exists(backup)&&revision<99){
+        ++revision;snprintf(backup+9,4,"b%02u",revision);
+      }
       if (SD.exists(backup) || !SD.rename(filename, backup)) { sdWriteFailed(); return; }
       newFile = true;
     }
@@ -140,9 +156,23 @@ void updateLogToSD() {
   for (uint8_t j=0;j<CMD_SIZE;++j) {
     sdLogFile.print(';');
     if (j == 3 || (j >= 11 && j <= 14)) sdPrintFixed(record.data[j], 10);
-    else if (j == 1 || j == 7 || j == 4 || j == 10) sdPrintFixed(record.data[j], 100);
+    else if (j == 7) sdPrintFixed(record.data[j], 10); // Oil is stored in tenths of bar.
+    else if (j == 1 || j == 4 || j == 10) sdPrintFixed(record.data[j], 100);
     else if (j == 15 || j == 16) sdPrintFixed((int32_t)(((uint32_t)(uint16_t)record.data[j+2] << 16) | (uint16_t)record.data[j]), 1000000);
     else sdLogFile.print(record.data[j]);
+  }
+  // Extra fields are SD-only. No enlargement of the 30-record LTE buffer.
+  for(uint8_t i=0;i<sizeof(csvExtraFields)/sizeof(csvExtraFields[0]);++i){
+    CsvExtraField f;memcpy_P(&f,csvExtraFields+i,sizeof(f));sdLogFile.print(';');
+    if(!extra.fresh(f.source,sampleMs,3000))continue; // Missing/stale is blank, never a false zero.
+    const uint16_t raw=extra.raw[f.source];
+    if(f.mask)sdLogFile.print((int)(((raw&f.mask)!=0)^f.invert));
+    else if(f.source==X_SA)sdPrintFixed(((int32_t)raw-128)*5,10);
+    else if(f.source==X_KR)sdPrintFixed(((uint32_t)raw*800+45)/91,100);
+    else if(f.source==X_INJ1||f.source==X_INJ2){
+      const uint32_t numerator=(uint32_t)raw*1000;
+      sdPrintFixed((numerator/65535)*1000+((numerator%65535)*1000+32767)/65535,1000);
+    }else sdLogFile.print(raw);
   }
   sdLogFile.println();
   if (sdLogFile.getWriteError()) { sdWriteFailed(); return; }

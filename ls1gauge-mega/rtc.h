@@ -85,6 +85,18 @@ void sqwISR() {
   tick = true;
 }
 
+void drawClockTemperature(uint8_t id,const __FlashStringHelper* label,uint8_t y){
+ if(cmd[id].wartosc==cmd[id].lastValue)return;
+ const int16_t v=cmd[id].wartosc;
+ char value[8];
+ if(v==-32768)strcpy(value,"--.-");
+ else {const uint16_t magnitude=v<0?-(int32_t)v:v;snprintf(value,sizeof(value),"%s%u.%u",v<0?"-":"",magnitude/10,magnitude%10);}
+ const uint8_t length=strlen(value),sx=length>4?1:2;
+ tft2.setFont();tft2.fillRect(61,y,120,16,GC9A01A_BLACK);tft2.setTextColor(GC9A01A_YELLOW);tft2.setTextSize(2);
+ tft2.setCursor(61,y);tft2.print(label);tft2.setTextSize(sx,2);tft2.setCursor(157-length*6*sx,y);tft2.print(value);
+ tft2.setTextSize(2);tft2.setCursor(157,y);tft2.write(0xF7);tft2.print('C');cmd[id].lastValue=v;
+}
+
 void drawTFT2(){
     if(guiStarted) {
 int16_t kat2 = KAT + map(now.second(), 0, 60, 0, 300);
@@ -160,45 +172,16 @@ if (clockMode) {
     lastWeekday = now.dayOfTheWeek();
   }
 
-tft2.setTextSize(2);
-tft2.setTextColor(GC9A01A_YELLOW);
-// In Temp
-if (cmd[TEMP_IN].wartosc != cmd[TEMP_IN].lastValue) {
-  cmd[TEMP_IN].wartosc = constrain(cmd[TEMP_IN].wartosc, -999, 999);
-  tft2.fillRect(115, 144, 90, 18, GC9A01A_BLACK);
-  tft2.setCursor(70, 145);
-  tft2.print(F("In: "));
-  tft2.print(cmd[TEMP_IN].wartosc / 10.0, 1); tft2.write(0xF7); tft2.print(F("C"));
-  cmd[TEMP_IN].lastValue = cmd[TEMP_IN].wartosc;
+drawClockTemperature(TEMP_IN,F("In: "),145);
+drawClockTemperature(TEMP_OUT,F("Out:"),165);
+drawClockTemperature(TEMP_AC,F("AC: "),185);
+if(cmd[HUM].wartosc!=cmd[HUM].lastValue){
+  tft2.fillRect(73,205,96,16,GC9A01A_BLACK);tft2.setFont();tft2.setTextSize(2);tft2.setTextColor(GC9A01A_YELLOW);
+  char value[5];if(cmd[HUM].wartosc==-32768)strcpy(value,"--");else snprintf(value,sizeof(value),"%d",constrain((cmd[HUM].wartosc+5)/10,0,100));
+  tft2.setCursor(120-((5+strlen(value))*12-2)/2,205);tft2.print(F("Hum:"));tft2.print(value);tft2.print('%');
+  cmd[HUM].lastValue=cmd[HUM].wartosc;
 }
-// Out Temp
-if (cmd[TEMP_OUT].wartosc != cmd[TEMP_OUT].lastValue) {
-  cmd[TEMP_OUT].wartosc = constrain(cmd[TEMP_OUT].wartosc, -999, 999);
-  tft2.fillRect(115, 164, 90, 18, GC9A01A_BLACK);
-  tft2.setCursor(70, 165);
-  tft2.print(F("Out:"));
-  tft2.print(cmd[TEMP_OUT].wartosc / 10.0, 1); tft2.write(0xF7); tft2.print(F("C"));
-  cmd[TEMP_OUT].lastValue = cmd[TEMP_OUT].wartosc;
-}
-// Vent Temp
-if (cmd[TEMP_AC].wartosc != cmd[TEMP_AC].lastValue) {
-  cmd[TEMP_AC].wartosc = constrain(cmd[TEMP_AC].wartosc, -999, 999);
-  tft2.fillRect(115, 184, 90, 18, GC9A01A_BLACK);
-  tft2.setCursor(70, 185);
-  tft2.print(F("AC: "));
-  tft2.print(cmd[TEMP_AC].wartosc / 10.0, 1); tft2.write(0xF7); tft2.print(F("C"));
-  cmd[TEMP_AC].lastValue = cmd[TEMP_AC].wartosc;
-}
-// Humidity
-if (cmd[HUM].wartosc != cmd[HUM].lastValue) {
-  cmd[HUM].wartosc = constrain(cmd[HUM].wartosc, 99, 999);
-  tft2.fillRect(115, 204, 60, 18, GC9A01A_BLACK);
-  tft2.setCursor(70, 205);
-  tft2.print(F("Hum:"));
-  tft2.print(cmd[HUM].wartosc / 10.0, 0);
-  tft2.print(F("%"));
-  cmd[HUM].lastValue = cmd[HUM].wartosc;
-}
+drawClimateIndicators();
     } else {
       tft2.setTextSize(5);
   tft2.setTextColor(GC9A01A_WHITE);

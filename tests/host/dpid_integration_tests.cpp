@@ -16,12 +16,27 @@ void inject(uint8_t* frame,uint8_t n){frame[n-1]=crc(frame,n-1);vpw._storage.pus
 int main(){
   uint8_t fe[]={0x6c,0xf1,0x10,0x6a,0xfe,0x1f,0x40,128,60,80,100,0};
   uint8_t fd[]={0x6c,0xf1,0x10,0x6a,0xfd,100,200,140,120,60,100,0};
+  uint8_t fc[]={0x6c,0xf1,0x10,0x6a,0xfc,0x12,0x34,0xab,0xcd,108,8,0};
+  uint8_t fb[]={0x6c,0xf1,0x10,0x6a,0xfb,128,7,11,3,91,35,0};
   vpw.init(3,5);dpid.state=VpwDpid::STREAM;
   inject(fe,12);inject(fd,12);
   CHECK(counter==11);CHECK(cmd[RPM].wartosc==2000);CHECK(cmd[TPS].wartosc==50);
   CHECK(cmd[MAP].wartosc==60);CHECK(cmd[SPEED].wartosc==80);CHECK(cmd[SPARK].wartosc==33);
   CHECK(cmd[O2].wartosc==1375);CHECK(cmd[O22].wartosc==1720);CHECK(cmd[BATT].wartosc==140);
   CHECK(cmd[WATER].wartosc==80);CHECK(cmd[AIR].wartosc==20);CHECK(cmd[TRANS].wartosc==60);
+  inject(fc,12);inject(fb,12);CHECK(counter==21);
+  CHECK(extra.raw[X_INJ1]==0x1234&&extra.raw[X_INJ2]==0xabcd);
+  CHECK(extra.sparkHalfDegrees()==-20);CHECK(extra.raw[X_PRNDL]==8);
+  CHECK(extra.flagActive(X_FAN,1,millis())&&extra.flagActive(X_FAN,2,millis()));
+  CHECK(extra.flagActive(X_AC,8,millis())&&extra.flagActive(X_CL,32,millis()));
+  CHECK(!extra.flagActive(X_FAN,1,millis()+501));
+  CHECK(extra.flagActive(X_FAN,1,millis()+2500,3000)); // Ordinary fallback flags span a full poll round.
+  CHECK(!extra.flagActive(X_FAN,1,millis()+3001,3000));
+  extra.raw[X_INJ1]=19;extra.raw[X_INJ2]=19;CHECK(extra.fuelCut(millis()));
+  extra.raw[X_INJ2]=20;CHECK(!extra.fuelCut(millis()));
+  const uint8_t directPw[]={0x6c,0xf1,0x10,0x62,0x12,0x5b,0xff,0xff,0};
+  CHECK(!validGaugeReply(directPw,8));CHECK(validGaugeReply(directPw,9));
+  decodeGaugeReply(directPw,9);CHECK(extra.raw[X_INJ2]==65535);
   int16_t expected[11];for(int i=0;i<11;++i){expected[i]=cmd[i].wartosc;cmd[i].wartosc=-32768;}
   // Direct replies and the two DPID packets must yield the same eleven values.
   dpid.state=VpwDpid::LEGACY;o2[0]={};o2[1]={};

@@ -68,6 +68,7 @@ void(* resetFunc) (void) = 0;
 #include "font.h"
 #include "temp.h"
 #include "cmd.h"
+#include "gauge_indicators.h"
 #include "obrotomierz.h"
 #ifdef LOGO
 #include "images.h"
@@ -250,6 +251,7 @@ display(O2,    cmd[O2].wartosc);
 display(MAP,   cmd[MAP].wartosc);
 display(O22,   cmd[O22].wartosc);
 display(SPARK, cmd[SPARK].wartosc);
+drawFirstExtra();
   } else {
 
   char buf[8];
@@ -289,6 +291,7 @@ display(SPARK, cmd[SPARK].wartosc);
 display(AIR,   cmd[AIR].wartosc);
 display(WATER, cmd[WATER].wartosc);
 display(TRANS, cmd[TRANS].wartosc);
+if(clockMode)drawClimateIndicators();
 
   
 

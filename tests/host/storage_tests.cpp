@@ -35,6 +35,9 @@ int main(){
   sums[8]=2347;addLogEntry();CHECK(logIndex==1&&logBuffer[0].data[8]==2347);
   LogEntry saved=logBuffer[0];auto generation=logGeneration;
   cmd[8].wartosc=2347;
+  extra.set(X_INJ1,19,0);extra.set(X_INJ2,65535,0);extra.set(X_SA,108,0);
+  extra.set(X_PRNDL,8,0);extra.set(X_TCC,128,0);extra.set(X_SHIFT,7,0);
+  extra.set(X_AC,11,0);extra.set(X_FAN,3,0);extra.set(X_KR,91,0);extra.set(X_CL,35,0);
   testUs=199000;updateLogToSD();CHECK(disk.empty());
   testUs=200000;updateLogToSD();
   auto file=disk["l-261027.csv"];CHECK(file!=nullptr);
@@ -42,7 +45,10 @@ int main(){
   CHECK(file->date==FS_DATE(2026,10,27));CHECK(file->time==FS_TIME(12,0,0));
   CHECK(file->text.find("Datetime;")==0);
   CHECK(file->text.find("Uptime_ms")==std::string::npos);
+  CHECK(file->text.find(";Timing Advance (SAE);PRNDL Status;TCC Applied;Trans Shift Mode;")!=std::string::npos);
+  CHECK(file->text.find(";Fan 2;AC Active;AC Clutch Engaged;")!=std::string::npos);
   CHECK(file->text.find("2026-10-27 12:00:00,000;")!=std::string::npos);
+  CHECK(file->text.find(";-10,0;8;1;7;0,290;1000,000;1;1;8,00;1;1;1;1;")!=std::string::npos);
   CHECK(std::count(file->text.begin(),file->text.end(),'\n')==2);
   testUs=399000;updateLogToSD();CHECK(sdRows==1);
   for(int i=2;i<=5;++i){testUs=i*200000;updateLogToSD();}
@@ -50,6 +56,7 @@ int main(){
   CHECK(file->text.find("2026-10-27 12:00:00,800;")!=std::string::npos);
   testUs=1200000;updateLogToSD();CHECK(file->syncs==1);
   testUs=3200000;updateLogToSD();CHECK(sdRows==7); // One row, not ten copies after a delay.
+  CHECK(file->text.substr(file->text.size()-28)==std::string(27,';')+"\n"); // Stale extras are empty.
   CHECK(memcmp(&saved,&logBuffer[0],sizeof(saved))==0);
   CHECK(logIndex==1&&logGeneration==generation); // SD cannot consume/reset the LTE buffer.
   file->error=true;testUs=3400000;updateLogToSD();CHECK(sdErrors==1);
@@ -85,8 +92,8 @@ int main(){
   CHECK(excel->text.find(";-12,5;")!=std::string::npos);
   CHECK(excel->text.find(";52,158545;")!=std::string::npos);
   auto firstLine=excel->text.find('\n');
-  CHECK(std::count(excel->text.begin(),excel->text.begin()+firstLine,';')==17);
-  CHECK(std::count(excel->text.begin()+firstLine,excel->text.end(),';')==17);
+  CHECK(std::count(excel->text.begin(),excel->text.begin()+firstLine,';')==44);
+  CHECK(std::count(excel->text.begin()+firstLine,excel->text.end(),';')==44);
   testUs=2200000;updateLogToSD();CHECK(excel->time==FS_TIME(12,0,2));
   sdLogFile.close();testUs=2400000;updateLogToSD();CHECK(disk["l-261027.csv"]==excel);
   CHECK(std::count(excel->text.begin(),excel->text.end(),'\n')==4); // Header not repeated on reopen.
@@ -95,8 +102,9 @@ int main(){
   CHECK(disk["l-261027.csv"]==excel&&disk.count("l-261027.bak")==0);
   excel->readError=false;sdBackoff=false;disk["l-261027.bak"]=old;
   sdLogFile.close();disk["l-261027.csv"]=old;testUs=2800000;
-  auto errors=sdErrors;updateLogToSD();CHECK(sdErrors==errors+1);
-  CHECK(disk["l-261027.csv"]==old&&disk["l-261027.bak"]==old); // No overwrite on backup conflict.
+  auto errors=sdErrors;updateLogToSD();CHECK(sdErrors==errors);
+  CHECK(disk["l-261027.b01"]==old&&disk["l-261027.bak"]==old);
+  CHECK(disk["l-261027.csv"]!=old); // Existing backup cannot prevent today's new-schema log.
   auto bmp=std::make_shared<FakeDiskData>();disk["test.bmp"]=bmp;
   // Width 17 exercises partial chunks and three padding bytes per row.
   bmp->bytes.resize(54+54*2);auto& b=bmp->bytes;

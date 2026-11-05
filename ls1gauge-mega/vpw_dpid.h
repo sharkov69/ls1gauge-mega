@@ -10,14 +10,19 @@ const DpidField DPID_FIELDS[] PROGMEM = {
   {0x000c,0,0,2}, {0x0011,0,2,1}, {0x000b,0,3,1},
   {0x000d,0,4,1}, {0x115c,0,5,1},
   {0x114b,1,0,1}, {0x114e,1,1,1}, {0x1141,1,2,1},
-  {0x0005,1,3,1}, {0x000f,1,4,1}, {0x1940,1,5,1}
+  {0x0005,1,3,1}, {0x000f,1,4,1}, {0x1940,1,5,1},
+  {0x125a,2,0,2}, {0x125b,2,2,2}, {0x000e,2,4,1}, {0x1113,2,5,1},
+  {0x1102,3,0,1}, {0x1973,3,1,1}, {0x1100,3,2,1},
+  {0x1106,3,3,1}, {0x11a6,3,4,1}, {0x1105,3,5,1}
 };
+const uint8_t DPID_FIELD_COUNT = sizeof(DPID_FIELDS) / sizeof(DPID_FIELDS[0]);
+const uint8_t DPID_PACKET_COUNT = 4;
 inline DpidField dpidField(uint8_t index) {
   DpidField field; memcpy_P(&field, &DPID_FIELDS[index], sizeof(field)); return field;
 }
 inline uint8_t dpidChannelCount(uint8_t packet) {
   uint8_t count = 0;
-  for (uint8_t i = 0; i < 11; ++i) if (dpidField(i).packet == packet) ++count;
+  for (uint8_t i = 0; i < DPID_FIELD_COUNT; ++i) if (dpidField(i).packet == packet) ++count;
   return count;
 }
 
@@ -25,9 +30,9 @@ inline uint8_t dpidChannelCount(uint8_t packet) {
 // J1850VPW must validate it before calling receive(). No allocations or waits.
 class VpwDpid {
 public:
-  enum State : uint8_t { WAIT_ECU, STOP, DEFINE, START, STREAM, LEGACY };
+  enum State : uint8_t { WAIT_ECU, STOP, DEFINE, START, WAIT_STREAM, STREAM, LEGACY };
   State state = WAIT_ECU;
-  uint16_t packets[2] = {0,0};
+  uint16_t packets[4] = {};
   uint16_t failures = 0;
   uint8_t lastError = 0; // 1 timeout, 2 stale packet, otherwise ECU negative code.
   bool directPolling() const { return state == WAIT_ECU || state == LEGACY; }
@@ -38,14 +43,14 @@ public:
   // Returns packet index for accepted data, -1 for control/irrelevant frames.
   int8_t receive(const uint8_t* p, uint8_t size, uint32_t now) {
     if (!p || size < 6 || p[0] != 0x6c || p[1] != 0xf1 || p[2] != 0x10) return -1;
-    if (size == 12 && p[3] == 0x6a && (p[4] == 0xfe || p[4] == 0xfd)) {
+    if (size == 12 && p[3] == 0x6a && p[4] >= 0xfb && p[4] <= 0xfe) {
       sawStream = true;
       if (state == WAIT_ECU) ecuSeen(); // Clear a stream left by a previous reboot.
       if (state == LEGACY) { state = STOP; fallback = true; awaiting = false; }
-      if ((state != START || !awaiting) && state != STREAM) return -1;
+      if (state != WAIT_STREAM && state != STREAM) return -1;
       uint8_t packet = (uint8_t)(0xfe - p[4]);
       seen[packet] = now; seenMask |= (uint8_t)(1 << packet); ++packets[packet];
-      if (state == START && seenMask == 3) { state = STREAM; awaiting = false; keepSince = now; }
+      if (state == WAIT_STREAM && seenMask == 15) { state = STREAM; awaiting = false; keepSince = now; }
       return (int8_t)packet;
     }
     if (!awaiting) return -1;
@@ -58,7 +63,7 @@ public:
       DpidField f = dpidField(fieldIndex);
       if (p[4] == 0xfe - f.packet && p[5] == selector(f)) {
         awaiting = false;
-        if (++fieldIndex == 11) state = START;
+        if (++fieldIndex == DPID_FIELD_COUNT) state = START;
       }
       return -1;
     }
@@ -67,7 +72,12 @@ public:
       // P59 echoes the complete service request before the negative code.
       if (size != n + 3 || memcmp(p + 4, request + 3, n - 3) != 0) return -1;
       uint8_t code = p[size - 2];
-      if (code == 0x78 || (state == START && code == 0x23)) return -1;
+      if (code == 0x78) return -1;
+      if (state == START && code == 0x23) {
+        if (startGroup == 0) { startGroup = 1; awaiting = false; }
+        else { state = WAIT_STREAM; commandSince = now; seenMask = 0; }
+        return -1;
+      }
       lastError = code;
       fail();
     }
@@ -75,9 +85,8 @@ public:
   }
 
   bool tick(uint32_t now, bool canTransmit, bool (*transmit)(uint8_t*, uint8_t)) {
-    if (state == STREAM && ((uint32_t)(now - seen[0]) >= 3000 || (uint32_t)(now - seen[1]) >= 3000)) {
-      lastError = 2; fail();
-    }
+    if (state == STREAM) for (uint8_t i=0;i<DPID_PACKET_COUNT;++i)
+      if ((uint32_t)(now - seen[i]) >= 3000) { lastError = 2; fail(); break; }
     if (awaiting && (uint32_t)(now - commandSince) >= 2000) {
       lastError = 1; fail();
     }
@@ -93,9 +102,9 @@ public:
     return true;
   }
 private:
-  uint8_t fieldIndex = 0, seenMask = 0;
+  uint8_t fieldIndex = 0, seenMask = 0, startGroup = 0;
   bool awaiting = false, fallback = false, started = false, sawStream = false;
-  uint32_t commandSince = 0, keepSince = 0, seen[2] = {0,0};
+  uint32_t commandSince = 0, keepSince = 0, seen[4] = {};
   static uint8_t selector(const DpidField& f) { return (uint8_t)(0x40 | ((f.offset + 1) << 3) | f.length); }
   uint8_t makeRequest(uint8_t* p) const {
     p[0] = 0x6c; p[1] = 0x10; p[2] = 0xf1;
@@ -106,7 +115,8 @@ private:
       return 10;
     }
     if (state == START) {
-      p[3] = 0x2a; p[4] = 0x14; p[5] = p[7] = 0xfe; p[6] = p[8] = 0xfd;
+      p[3] = 0x2a; p[4] = startGroup ? 0x24 : 0x14;
+      p[5] = 0xfe; p[6] = 0xfd; p[7] = 0xfc; p[8] = 0xfb;
       return 9;
     }
     if (state == STOP) { p[3] = 0x2a; p[4] = 0; return 5; }

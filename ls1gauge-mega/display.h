@@ -6,19 +6,19 @@
 };
 
 const DisplayField fields[13] PROGMEM = {
-  {155, 140, 35, 18,   -1, 0, 2, 3, GC9A01A_WHITE},  // AIR   = 0
+  { 58, 140, 36, 16,   -1, 0, 2, 3, GC9A01A_WHITE},  // AIR   = 0
   {175, 100, 35, 18,   -1, 2, 2, 3, GC9A01A_WHITE},  // MAP   = 1
   { 70,  80, 35, 18,   89, 0, 2, 3, GC9A01A_WHITE},  // TPS   = 2
   {175,  80, 47, 18,   -1, 1, 2, 3, GC9A01A_WHITE},  // BATT  = 3
   { 70, 120, 50, 18,   -1, 2, 2, 3, GC9A01A_WHITE},  // O22   = 4
-  {145,  30, 35, 20,   -1, 0, 2, 3, GC9A01A_YELLOW}, // SPEED = 5
-  {155, 180, 35, 18,   89, 0, 2, 3, GC9A01A_WHITE},  // TRANS = 6
+  {139,  30, 36, 16,   -1, 0, 2, 3, GC9A01A_YELLOW}, // SPEED = 5
+  { 70, 160, 36, 16,   89, 0, 2, 3, GC9A01A_WHITE},  // TRANS = 6
   {175, 120, 35, 18,   -1, 1, 2, 3, GC9A01A_WHITE},  // SPARK = 7 (olej)
-  {135,  50, 75, 22, 5499, 0, 3, 4, GC9A01A_GREEN},  // RPM   = 8
-  {155, 160, 35, 18,   99, 0, 2, 3, GC9A01A_WHITE},  // WATER = 9
+  {122,  50, 72, 22, 5499, 0, 3, 4, GC9A01A_GREEN},  // RPM   = 8
+  {173, 140, 36, 16,   99, 0, 2, 3, GC9A01A_WHITE},  // WATER = 9
   { 70, 100, 50, 18,   -1, 2, 2, 3, GC9A01A_WHITE},  // O2    = 10
 
-  {112, 225, 25, 18,   -1, 0, 1, 4, GC9A01A_YELLOW}, // 11: RX channel samples/min
+  {112, 225, 30, 14,   -1, 0, 1, 4, GC9A01A_YELLOW}, // 11: RX channel samples/min
   {125, 200, 47, 18,   -1, 1, 2, 3, GC9A01A_WHITE}   // 12: bateria w drugim widoku
 };
 
@@ -34,6 +34,7 @@ void display(uint8_t id, int16_t value) {
 
   DisplayField field;
   memcpy_P(&field, &fields[id], sizeof(field));
+  if(!guiMode&&(id==AIR||id==WATER||id==TRANS)){field.x=155;field.y=id==AIR?140:id==WATER?160:180;}
   
   tft.fillRect(field.x, field.y, field.w, field.h, GC9A01A_BLACK);
   tft.setTextSize(field.textSize);
@@ -43,7 +44,7 @@ void display(uint8_t id, int16_t value) {
     tft.setTextColor(field.normColor);
   }
   tft.setCursor(field.x, field.y);
-  char buf[6];
+  char buf[8];
   switch (field.decimals) {
     case 1:
       sprintf(buf, "%d.%d", value / 10, value % 10);
@@ -70,9 +71,9 @@ void drawGUI() {
 } 
   tft.fillScreen(GC9A01A_BLACK);
   tft.setTextSize(2); tft.setTextColor(GC9A01A_WHITE);
-  tft.setCursor(55, 30); tft.println(F("Speed:"));
+  tft.setCursor(67, 30); tft.println(F("Speed:"));
   tft.setTextSize(3);
-  tft.setCursor(40, 50); tft.println(F("RPM:"));
+  tft.setCursor(50, 50); tft.println(F("RPM:"));
   lastKat = KAT;
   obrotomierz(lastKat, lastKat+300, 0x39E7);
   tft.setTextSize(2);
@@ -88,12 +89,11 @@ void drawGUI() {
   tft.setCursor(125, 120); tft.println(F("OIL:"));
   tft.setCursor(175, 120); tft.print(F("0.0")); tft.setTextSize(1); tft.setCursor(215, 127); tft.println(F("bar"));
   tft.setTextSize(2);
-  tft.setCursor(25, 140); tft.println(F("Air Temp:"));
-  tft.setCursor(155, 140); tft.print(F("  0")); tft.write(0xF7); tft.println(F("C"));
-  tft.setCursor(25, 160); tft.println(F("Water Temp:"));
-  tft.setCursor(155, 160); tft.print(F("  0")); tft.write(0xF7);  tft.println(F("C"));
-  tft.setCursor(25, 180); tft.println(F("Trans Temp:"));
-  tft.setCursor(155, 180); tft.print(F("  0")); tft.write(0xF7); tft.println(F("C"));
+  tft.setCursor(10,140);tft.print(F("IAT:"));tft.setCursor(94,140);tft.write(0xF7);tft.print(F("C"));
+  tft.setCursor(125,140);tft.print(F("ECT:"));tft.setCursor(209,140);tft.write(0xF7);tft.print(F("C"));
+  tft.setCursor(22,160);tft.print(F("TFT:"));tft.setCursor(106,160);tft.write(0xF7);tft.print(F("C"));
+  tft.setCursor(141,160);tft.print(F("SA:"));tft.setCursor(209,160);tft.write(0xF7);
+  drawFirstExtra(true);
 
   tft.setTextSize(1); tft.setTextColor(GC9A01A_YELLOW);
   tft.setCursor(90, 225); tft.print(F("RX"));
@@ -131,5 +131,6 @@ void drawClockGUI() {
     obrotomierz(lastKat2, lastKat2+300, 0x39E7, false);
     lastHour = -1; lastMinute = -1; lastDay = -1; lastMonth = -1; lastYear = -1; lastWeekday = -1;
     cmd[TEMP_AC].lastValue = -999; cmd[HUM].lastValue = -999; cmd[TEMP_OUT].lastValue = -999; cmd[TEMP_IN].lastValue = -999;
+    if(clockMode)drawClimateIndicators(true);
     wdt_reset();
 }

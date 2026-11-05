@@ -149,6 +149,8 @@ int16_t updateO2(objO2 &o2, int16_t v) {
 }
 
 uint16_t lastSend = 0;
+uint32_t extraPollSince = 0;
+uint8_t extraPollIndex = 0;
 bool transmitVpw(uint8_t* data, uint8_t size) {
   bool sent = vpw.send(data, size, 1);
   lastSend = (uint16_t)millis();
@@ -162,6 +164,15 @@ void send(){
   dpid.tick(millis(), canTransmit, transmitVpw);
   if (!dpid.directPolling()) return;
 #endif
+  // Bounded round-robin fallback for the new channels. No extra Cmd/LTE slots.
+  if(canTransmit && (uint32_t)(millis()-extraPollSince)>=250) {
+    const uint16_t pid=extraPid(extraPollIndex);
+    uint8_t request[7]={0x6c,0x10,0xf1,0x22,(uint8_t)(pid>>8),(uint8_t)pid,1};
+    uint8_t n=7;
+    if(pid<=255){request[0]=0x68;request[1]=0x6a;request[3]=1;request[4]=(uint8_t)pid;n=5;}
+    if(transmitVpw(request,n)){extraPollSince=millis();extraPollIndex=(extraPollIndex+1)%EXTRA_COUNT;}
+    return;
+  }
   uint8_t id = 0xFF;
   int32_t max = -32000;
 
@@ -195,6 +206,13 @@ void send(){
 
 void decodeGaugeReply(const uint8_t* pData, uint8_t dataSize) {
   if (validGaugeReply(pData, dataSize)) {
+    const uint16_t fullPid=pData[3]==0x41?pData[4]:((uint16_t)pData[4]<<8)|pData[5];
+    const int8_t x=extraIndex(fullPid);
+    if(x>=0){
+      const uint8_t offset=pData[3]==0x41?5:6;
+      const uint16_t raw=(x==X_INJ1||x==X_INJ2)?((uint16_t)pData[offset]<<8)|pData[offset+1]:pData[offset];
+      extra.set((uint8_t)x,raw,millis());return;
+    }
     #ifdef TXRX     
     DBG(F("RX:"));
     for (uint8_t i = 0; i < dataSize; i++) {
@@ -338,14 +356,14 @@ void decodeGaugeReply(const uint8_t* pData, uint8_t dataSize) {
 
 void decodeDpidPacket(uint8_t packet, const uint8_t* data) {
   // Reuse the existing PID conversions and independent four-sample AFR filters.
-  for (uint8_t i = 0; i < 11; ++i) {
+  for (uint8_t i = 0; i < DPID_FIELD_COUNT; ++i) {
     DpidField f = dpidField(i);
     if (f.packet != packet) continue;
-    uint8_t reply[8] = {0x6c,0xf1,0x10,0,0,0,0,0};
+    uint8_t reply[9] = {0x6c,0xf1,0x10,0,0,0,0,0,0};
     if (f.pid > 0xff) {
       reply[3] = 0x62; reply[4] = (uint8_t)(f.pid >> 8); reply[5] = (uint8_t)f.pid;
-      reply[6] = data[f.offset];
-      decodeGaugeReply(reply, 8);
+      memcpy(reply+6,data+f.offset,f.length);
+      decodeGaugeReply(reply, (uint8_t)(7+f.length));
     } else {
       reply[3] = 0x41; reply[4] = (uint8_t)f.pid;
       memcpy(reply + 5, data + f.offset, f.length);

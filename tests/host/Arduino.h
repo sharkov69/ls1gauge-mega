@@ -1,4 +1,5 @@
 #pragma once
+#define pgm_read_word(p) (*(const uint16_t*)(p))
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
