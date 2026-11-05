@@ -1,8 +1,4 @@
-#include "Arduino.h"
-#define private public
-#include "../../libraries/J1850-VPW-WC/j1850vpw-wc.cpp"
-#undef private
-#include "../../ls1gauge-mega/vpw_reply.h"
+#include "gauge_fixture.h"
 static int failures=0;
 #define CHECK(c) do { if(!(c)){printf("FAIL line %d: %s\n",__LINE__,#c);++failures;} }while(0)
 // Inject transitions at the GPIO boundary, including the initial idle and SOF.

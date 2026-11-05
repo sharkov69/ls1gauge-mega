@@ -2,7 +2,7 @@
 
 Projekt wskaźników i rejestratora danych samochodowych na Arduino Mega 2560. Program odpytuje sterownik przez J1850 VPW, wyświetla parametry na dwóch ekranach GC9A01A, zapisuje logi CSV na karcie SD i wysyła paczki binarne przez modem. Odczytuje też temperatury, wilgotność i pozycję GPS.
 
-Gałąź zawiera etap 1 usprawnień dla tego samego sterownika P59: poprawiony odbiór VPW, obsługę modemu bez aktywnego oczekiwania mniejsze zużycie SRAM oraz odczyt 11 kanałów P59 w dwóch pakietach DPID. Bazowy wsad działał na urządzeniu autora. Autor potwierdził działanie DPID na P59. Przyspieszenie TFT/SD/LTE sprawdzono testami hosta i kompilacją Mega 2560; te ostatnie zmiany wymagają próby na sprzęcie.
+Gałąź `codex/vpw-stage1` zawiera obsługę czterech pakietów DPID dla P59: 21 odczytywanych kanałów ECU oraz dodatkowe flagi wydzielane z tych samych bajtów. Wszystkie 27 kanałów, łącznie z czujnikami lokalnymi i GPS, korzystają ze wspólnej struktury `Channel`. Autor potwierdził działanie wcześniejszej obsługi DPID na P59. Obecną refaktoryzację sprawdzono testami hosta, porównaniem wyników z poprzednim commitem i kompilacją Mega 2560; próba na urządzeniu pozostaje potrzebna.
 
 ## Dokumentacja
 
@@ -12,7 +12,7 @@ Gałąź zawiera etap 1 usprawnień dla tego samego sterownika P59: poprawiony o
 
 - [Szybszy ekran, SD i LTE](docs/SZYBKIE_LOGOWANIE.md): aktualne interwały, CSV, zgodność API i RAM.
 
-- [Dwa pakiety P59](docs/DPID.md): podział kanałów, start, powrót do legacy, diagnostyka i pamięć.
+- [Cztery DPID i CSV](docs/CSV-P59.md): aktualny zestaw kanałów i kolumn. [Opis wcześniejszego etapu dwóch DPID](docs/DPID.md) dokumentuje rozwój protokołu.
 
 - [Etap 1: zmiany, pamięć i testy](docs/ETAP1.md): wyniki kompilacji, ograniczenia czasowe i próba na urządzeniu.
 - [Połączenia i sprzęt](docs/PODLACZENIA.md): piny Mega, wspólne magistrale, przyciski i elementy wymagające potwierdzenia.
@@ -24,7 +24,7 @@ Gałąź zawiera etap 1 usprawnień dla tego samego sterownika P59: poprawiony o
 | Plik lub katalog | Zawartość |
 | --- | --- |
 | `ls1gauge-mega/ls1gauge-mega.ino` | Inicjalizacja sprzętu i główna pętla |
-| `ls1gauge-mega/cmd.h` | Zapytania VPW, dekodowanie odpowiedzi, tablica pomiarów |
+| `ls1gauge-mega/cmd.h` | Wspólne kanały, zapytania VPW, cztery DPID, walidacja i dekodowanie odpowiedzi |
 | `ls1gauge-mega/display.h`, `obrotomierz.h` | Widoki parametrów i łuki wskaźników |
 | `ls1gauge-mega/rtc.h` | RTC, zegar, token i adresy EEPROM |
 | `ls1gauge-mega/temp.h` | DS18B20 i DHT22 |
@@ -33,7 +33,6 @@ Gałąź zawiera etap 1 usprawnień dla tego samego sterownika P59: poprawiony o
 | `ls1gauge-mega/menu.h` | Menu, ustawienia i usypianie ekranów |
 | `ls1gauge-mega/drawbmp.h` | Odczyt obrazów BMP z SD |
 | `ls1gauge-mega/font.h`, `images.h` | Czcionka i grafika wbudowana |
-| `ls1gauge-mega/sscom.ini` | Plik ustawień narzędzia terminalowego; szkic go nie używa |
 | `libraries/J1850-VPW-WC/` | Dołączona wersja biblioteki VPW |
 
 ## Przepływ danych
@@ -51,3 +50,25 @@ flowchart LR
 ```
 
 Repozytorium zawiera firmware i bibliotekę VPW. Nie zawiera schematu interfejsu samochodowego, projektu zasilania, serwera `logger.php` ani obrazów BMP na kartę SD.
+
+## Organizacja danych
+
+`channels[id]` przechowuje wartość, czas aktualizacji i poprawność pomiaru.
+Pierwsze 17 indeksów zachowuje dotychczasową kolejność API i CSV. Kanały ECU
+z dalszych indeksów przechowują surowe dane; `raw()` zachowuje pełny zakres
+16-bit bez znaku, również dla wtryskiwaczy. Przeliczenia pozostają takie jak
+przed refaktoryzacją. Poprawność i czas nie zmieniają zasad zapisu starych kanałów.
+
+`lastDisplayed` przechowuje pamięć odrysowania ekranów, a `gpsHigh` górne słowa
+współrzędnych GPS. Definicje zapytań legacy są we Flash, ich czasy wysłania w RAM.
+`sd.h` zachowuje 42-bajtowy `LogEntry` i 30 rekordów dla LTE oraz niezależny CSV
+z 45 kolumnami. Dodanie kanału do ekranu nie rozszerza automatycznie rekordu API.
+
+Obsługa DPID i dodatkowych kanałów jest w `cmd.h`, a wskaźniki w `display.h`.
+Nie potrzeba już `extra_channels.h`, `vpw_reply.h`, `vpw_dpid.h` ani
+`gauge_indicators.h`. Reguły wcięć i łamania linii zapisano w `.clang-format`.
+
+Testy: `tests/run-host-tests.ps1` oraz `node tests/run-compatibility.cjs`.
+Drugi test kompiluje wersję bazową `87f73bf` i bieżącą, następnie porównuje
+CSV, pakiety i komendy LTE, polecenia rysowania oraz przeliczenia i harmonogram VPW.
+Wymaga lokalnej historii Git i kompilatora Visual Studio C++.

@@ -7,10 +7,8 @@
 #define DBGL(...) ((void)0)
 #define DBG2(...) ((void)0)
 #define DBGL2(...) ((void)0)
-enum { LAT=15,LON=16,CMD_SIZE=17 };
-struct CmdValue {volatile int16_t wartosc=0;int16_t lastValue=0;} cmd[17];
-uint16_t czas=0;
-void encodeCoord(float deg,volatile int16_t& low,int16_t& high){int32_t v=(int32_t)(deg*1e6f);low=(int16_t)v;high=(int16_t)(v>>16);}
+#include "gauge_fixture.h"
+void encodeCoord(float deg,int16_t& low,int16_t& high){int32_t v=(int32_t)(deg*1e6f);low=(int16_t)v;high=(int16_t)(v>>16);}
 int freeRam(){return 2700;}
 #include "../../ls1gauge-mega/modem.h"
 struct DateTime {uint16_t year()const{return 2026;}uint8_t month()const{return 10;}};
@@ -113,10 +111,10 @@ int main(){
     if(!modemInitDone())return 1;
     getGPSInfo();
     for(int i=0;i<1000;++i)peer.step();
-    int32_t lat=(int32_t)((uint32_t)(uint16_t)cmd[LAT].lastValue<<16)|(uint16_t)cmd[LAT].wartosc;
+    int32_t lat=(int32_t)((uint32_t)(uint16_t)gpsHigh[LAT - LAT]<<16)|(uint16_t)channels[LAT].value;
     CHECK(lat>52158000&&lat<52159000);
-    auto saved=cmd[LAT].wartosc;
-    char nofix[]="+CGPSINFO: ,,,,,,,,";CHECK(!parseGpsLine(nofix));CHECK(cmd[LAT].wartosc==saved);
+    auto saved=channels[LAT].value;
+    char nofix[]="+CGPSINFO: ,,,,,,,,";CHECK(!parseGpsLine(nofix));CHECK(channels[LAT].value==saved);
     char malformed[]="+CGPSINFO: 5260.0,N,02100.0,E,1,2,3,4,5";CHECK(!parseGpsLine(malformed));
     for(int i=0;i<30;++i){logBuffer[i].day=27;logBuffer[i].second=(uint8_t)(i*2);logBuffer[i].data[0]=(int16_t)(100+i);}
     ++logGeneration;logIndex=0;startSendLog();

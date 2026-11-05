@@ -1,6 +1,6 @@
 #include "Arduino.h"
 #include <ctime>
-#define CMD_SIZE 17
+#include "gauge_fixture.h"
 #define DBGL(...) ((void)0)
 #define DBG(...) ((void)0)
 uint8_t rtcDay = 27;
@@ -13,7 +13,7 @@ struct DateTime {
   uint32_t unixtime()const{return epoch;}
 };
 struct {DateTime now(){return DateTime(1793102400u+(rtcDay-27)*86400u+millis()/1000);}} rtc;
-struct {int16_t wartosc=0,lastValue=0;} cmd[CMD_SIZE];
+
 #include "../../ls1gauge-mega/sd.h"
 #define GC9A01A_BLACK 0
 struct {
@@ -28,16 +28,18 @@ static int failures=0;
 #define CHECK(c) do{if(!(c)){printf("FAIL line %d: %s\n",__LINE__,#c);++failures;}}while(0)
 void put32(std::vector<uint8_t>& b,size_t i,uint32_t value){for(int j=0;j<4;++j)b[i+j]=(uint8_t)(value>>(j*8));}
 int main(){
+  for (auto& channel : channels) channel.value = 0;
+  gpsHigh[0] = gpsHigh[1] = 0;
   // File metadata must use the hardware RTC, not the library's default date.
   FsDateTime::setCallback(sdDateTime);
   // LTE keeps the exact record size and now takes one 1 Hz snapshot per record.
   CHECK(sizeof(LogEntry)==42);CHECK(SREDNIA==1);
   sums[8]=2347;addLogEntry();CHECK(logIndex==1&&logBuffer[0].data[8]==2347);
   LogEntry saved=logBuffer[0];auto generation=logGeneration;
-  cmd[8].wartosc=2347;
-  extra.set(X_INJ1,19,0);extra.set(X_INJ2,65535,0);extra.set(X_SA,108,0);
-  extra.set(X_PRNDL,8,0);extra.set(X_TCC,128,0);extra.set(X_SHIFT,7,0);
-  extra.set(X_AC,11,0);extra.set(X_FAN,3,0);extra.set(X_KR,91,0);extra.set(X_CL,35,0);
+  channels[8].value=2347;
+  channels[INJ1].setRaw(19,0);channels[INJ2].setRaw(65535,0);channels[SA].setRaw(108,0);
+  channels[PRNDL].setRaw(8,0);channels[TCC].setRaw(128,0);channels[SHIFT_MODE].setRaw(7,0);
+  channels[AC_STATE].setRaw(11,0);channels[FAN_STATE].setRaw(3,0);channels[KR].setRaw(91,0);channels[CL_STATE].setRaw(35,0);
   testUs=199000;updateLogToSD();CHECK(disk.empty());
   testUs=200000;updateLogToSD();
   auto file=disk["l-261027.csv"];CHECK(file!=nullptr);
@@ -82,9 +84,9 @@ int main(){
   rtcDay=27;testUs=200000;
   auto old=std::make_shared<FakeDiskData>();old->text="Datetime,RPM\nold data\n";
   disk["l-261027.csv"]=old;
-  cmd[1].wartosc=123;cmd[3].wartosc=138;cmd[4].wartosc=1475;cmd[11].wartosc=-125;
+  channels[1].value=123;channels[3].value=138;channels[4].value=1475;channels[11].value=-125;
   const int32_t latitude=52158545;
-  cmd[15].wartosc=(int16_t)latitude;cmd[15].lastValue=(int16_t)(latitude>>16);
+  channels[15].value=(int16_t)latitude;gpsHigh[0]=(int16_t)(latitude>>16);
   updateLogToSD();
   CHECK(disk["l-261027.bak"]==old);CHECK(old->text=="Datetime,RPM\nold data\n");
   auto excel=disk["l-261027.csv"];CHECK(excel!=old);

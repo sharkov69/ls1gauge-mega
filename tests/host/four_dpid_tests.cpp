@@ -1,6 +1,6 @@
 #include "Arduino.h"
 #include <vector>
-#include "../../ls1gauge-mega/vpw_dpid.h"
+#include "gauge_fixture.h"
 static int failures=0;
 #define CHECK(c) do{if(!(c)){printf("FAIL line %d: %s\n",__LINE__,#c);++failures;}}while(0)
 static std::vector<uint8_t> sent;
