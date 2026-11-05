@@ -20,12 +20,8 @@ uint16_t counter=0;
 #define max(a,b) ((a)>(b)?(a):(b))
 #include "../../ls1gauge-mega/cmd.h"
 int main() {
-    // Fallback timing at supported pause settings, including 16-bit wraparound.
-    dpid.state=VpwDpid::LEGACY;
-    for (int setting : {25,75,125}) {
-        pause=setting;
-        for (uint32_t t=0;t<140000;t+=5) { testUs=t*1000;send(); }
-    }
+    // Fallback cadence intentionally changed; tests/host/fallback_tests.cpp covers it.
+    // This baseline comparison checks only unchanged DPID decoding.
     // Full one-byte domain, including unsigned injector values above INT16_MAX.
     for (int v=0;v<256;++v) {
         uint8_t payload[6];memset(payload,v,sizeof(payload));

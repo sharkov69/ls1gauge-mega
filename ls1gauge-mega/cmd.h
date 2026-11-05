@@ -120,21 +120,29 @@ struct DpidField {
 };
 const DpidField DPID_FIELDS[] PROGMEM = {
     {0x000c, RPM, 0, 0, 2, 250},        {0x0011, TPS, 0, 2, 1, 250},
-    {0x000b, MAP, 0, 3, 1, 500},        {0x000d, SPEED, 0, 4, 1, 500},
-    {0x115c, OIL, 0, 5, 1, 2500},       {0x114b, O2, 1, 0, 1, 500},
-    {0x114e, O22, 1, 1, 1, 500},        {0x1141, BATT, 1, 2, 1, 5000},
+    {0x000b, MAP, 0, 3, 1, 250},        {0x000d, SPEED, 0, 4, 1, 250},
+    {0x115c, OIL, 0, 5, 1, 5000},       {0x114b, O2, 1, 0, 1, 250},
+    {0x114e, O22, 1, 1, 1, 250},        {0x1141, BATT, 1, 2, 1, 5000},
     {0x0005, WATER, 1, 3, 1, 5000},     {0x000f, AIR, 1, 4, 1, 5000},
-    {0x1940, TRANS, 1, 5, 1, 5000},     {0x125a, INJ1, 2, 0, 2, 250},
-    {0x125b, INJ2, 2, 2, 2, 250},       {0x000e, SA, 2, 4, 1, 250},
-    {0x1113, PRNDL, 2, 5, 1, 250},      {0x1102, TCC, 3, 0, 1, 250},
-    {0x1973, SHIFT_MODE, 3, 1, 1, 250}, {0x1100, AC_STATE, 3, 2, 1, 250},
-    {0x1106, FAN_STATE, 3, 3, 1, 250},  {0x11a6, KR, 3, 4, 1, 250},
-    {0x1105, CL_STATE, 3, 5, 1, 250}};
+    {0x1940, TRANS, 1, 5, 1, 5000},     {0x125a, INJ1, 2, 0, 2, 1000},
+    {0x125b, INJ2, 2, 2, 2, 1000},      {0x000e, SA, 2, 4, 1, 250},
+    {0x1113, PRNDL, 2, 5, 1, 1000},     {0x1102, TCC, 3, 0, 1, 1000},
+    {0x1973, SHIFT_MODE, 3, 1, 1, 1000}, {0x1100, AC_STATE, 3, 2, 1, 2000},
+    {0x1106, FAN_STATE, 3, 3, 1, 2000},  {0x11a6, KR, 3, 4, 1, 250},
+    {0x1105, CL_STATE, 3, 5, 1, 2000}};
 constexpr uint8_t DPID_FIELD_COUNT = sizeof(DPID_FIELDS) / sizeof(DPID_FIELDS[0]);
 constexpr uint8_t DPID_PACKET_COUNT = 4;
-constexpr uint8_t POLL_COUNT = O2 + 1;
+constexpr uint8_t POLL_COUNT = DPID_FIELD_COUNT;
 uint16_t lastRequestAt[POLL_COUNT] = {0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff,
-                                      0xffff, 0xffff, 0xffff, 0xffff, 0xffff};
+                                    0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff,
+                                    0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff,
+                                    0xffff, 0xffff, 0xffff};
+
+// Preserve the original tie-breaking order; skip local sensors and GPS.
+uint8_t pollChannel(uint8_t index) {
+	constexpr uint8_t basePidCount = O2 + 1;
+	return index < basePidCount ? index : BASE_CHANNEL_COUNT + index - basePidCount;
+}
 
 DpidField dpidField(uint8_t index) {
 	DpidField field;
@@ -435,8 +443,6 @@ int16_t updateO2(objO2 &o2, int16_t v) {
 }
 
 uint16_t lastSend = 0;
-uint32_t extraPollSince = 0;
-uint8_t extraPollIndex = 0;
 bool transmitVpw(uint8_t *data, uint8_t size) {
 	bool sent = vpw.send(data, size, 1);
 	lastSend = (uint16_t)millis();
@@ -452,22 +458,12 @@ void send() {
 	if (!dpid.directPolling())
 		return;
 #endif
-	// Keep the existing round-robin fallback cadence for the extended channels.
-	if (canTransmit && (uint32_t)(millis() - extraPollSince) >= 250) {
-		const DpidField field = fieldForChannel(BASE_CHANNEL_COUNT + extraPollIndex);
-		uint8_t request[7];
-		const uint8_t n = makePidRequest(field.pid, request);
-		if (transmitVpw(request, n)) {
-			extraPollSince = millis();
-			extraPollIndex = (extraPollIndex + 1) % EXTRA_COUNT;
-		}
-		return;
-	}
+	// Every ECU PID competes by elapsed time minus its own requested interval.
 	uint8_t id = 0xFF;
 	int32_t max = -32000;
 
 	for (uint8_t i = 0; i < POLL_COUNT; i++) {
-		const DpidField request = fieldForChannel(i);
+		const DpidField request = fieldForChannel(pollChannel(i));
 		if (lastRequestAt[i] == 0xFFFF || (uint16_t)(czas - lastRequestAt[i]) > 0x8000) {
 			lastRequestAt[i] = czas - (uint16_t)((i * pause) % request.intervalMs);
 		}
@@ -482,7 +478,7 @@ void send() {
 	}
 	if (id != 0xFF && (uint16_t)(czas - lastSend) >= pause &&
 	    (uint16_t)(czas - lastRxEnd) >= guardRx) {
-		const DpidField field = fieldForChannel(id);
+		const DpidField field = fieldForChannel(pollChannel(id));
 		uint8_t request[7];
 		const uint8_t size = makePidRequest(field.pid, request);
 		bool sent = transmitVpw(request, size);
