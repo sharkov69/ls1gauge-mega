@@ -54,7 +54,7 @@ Repozytorium zawiera firmware i bibliotekę VPW. Nie zawiera schematu interfejsu
 ## Organizacja danych
 
 `channels[id]` przechowuje wartość, czas aktualizacji i poprawność pomiaru.
-Pierwsze 17 indeksów zachowuje dotychczasową kolejność API i CSV. Kanały ECU
+Pierwsze 17 indeksów zachowuje dotychczasową kolejność API. CSV ma osobną kolejność. Kanały ECU
 z dalszych indeksów przechowują surowe dane; `raw()` zachowuje pełny zakres
 16-bit bez znaku, również dla wtryskiwaczy. Przeliczenia pozostają takie jak
 przed refaktoryzacją. Poprawność i czas nie zmieniają zasad zapisu starych kanałów.
@@ -62,7 +62,7 @@ przed refaktoryzacją. Poprawność i czas nie zmieniają zasad zapisu starych k
 `lastDisplayed` przechowuje pamięć odrysowania ekranów, a `gpsHigh` górne słowa
 współrzędnych GPS. Definicje zapytań legacy są we Flash, ich czasy wysłania w RAM.
 `sd.h` zachowuje 42-bajtowy `LogEntry` i 30 rekordów dla LTE oraz niezależny CSV
-z 45 kolumnami. Dodanie kanału do ekranu nie rozszerza automatycznie rekordu API.
+z 37 kolumnami. Dodanie kanału do ekranu nie rozszerza automatycznie rekordu API.
 
 Obsługa DPID i dodatkowych kanałów jest w `cmd.h`, a wskaźniki w `display.h`.
 Nie potrzeba już `extra_channels.h`, `vpw_reply.h`, `vpw_dpid.h` ani
@@ -70,5 +70,6 @@ Nie potrzeba już `extra_channels.h`, `vpw_reply.h`, `vpw_dpid.h` ani
 
 Testy: `tests/run-host-tests.ps1` oraz `node tests/run-compatibility.cjs`.
 Drugi test kompiluje wersję bazową `87f73bf` i bieżącą, następnie porównuje
-CSV, pakiety i komendy LTE, polecenia rysowania oraz przeliczenia i harmonogram VPW.
+pakiety i komendy LTE, polecenia rysowania oraz przeliczenia VPW. Testy SD sprawdzają
+osobno nowy nagłówek CSV, wartości, brak odczytu i zachowanie ostatniego pomiaru.
 Wymaga lokalnej historii Git i kompilatora Visual Studio C++.

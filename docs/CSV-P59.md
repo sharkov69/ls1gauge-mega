@@ -1,6 +1,6 @@
 # CSV i cztery pakiety DPID
 
-Aktualizacja 2026-11-05. Zmiany dotyczą VPW, ekranów i SD. Modem, API, format binarny, bufor 30 rekordów i harmonogram LTE pozostają bez zmian. `CMD_SIZE=17`, rekord LTE ma 42 bajty; nowe kanały nie trafiają do API.
+Aktualizacja 2026-11-06. Zmiany dotyczą VPW, ekranów i SD. Modem, API, format binarny, bufor 30 rekordów i harmonogram LTE pozostają bez zmian. `CMD_SIZE=17`, rekord LTE ma 42 bajty; nowe kanały nie trafiają do API.
 
 ## Pakiety i źródła
 
@@ -21,7 +21,7 @@ Kontrolka paliwa: oba poprawne czasy wtrysku <0,3 ms, czyli raw <=19. To wniosko
 
 Pozostaje plik `l-YYMMDD.csv`, średnik i polski przecinek dziesiętny. Pierwsza kolumna: `Datetime`, np. `2026-11-05 14:32:10,200`. SD zapisuje najnowszy stan co 200 ms, synchronizuje co 1 s. To migawki 5 Hz, nie zapis każdej ramki VPW. Wolna karta nie wywołuje serii zaległych kopii.
 
-Pierwsze 17 kanałów zachowuje kolejność. Nazwy kanałów ECU odpowiadają katalogowi P59 Scanner; AFR ma nazwy `AFR 1` / `AFR 2` z jego P59.Maths.xml. Nazwy lokalnych czujników i GPS pozostają dotychczasowe. Następnie dochodzi 27 kolumn: 10 nowych odczytów i 17 stanów z tych samych bitów. Łącznie 45 kolumn z czasem (38 kanałów ECU + 6 lokalnych).
+CSV ma 37 kolumn z czasem. Jego kolejność jest niezależna od niezmienionej kolejności kanałów w LTE. Po `Datetime`: napięcie, RPM, prędkość, TPS, IAT, ECT, TFT, MAP, olej, SA, AFR1, AFR2. Następnie czujniki lokalne i GPS, PRNDL, TCC, tryb skrzyni, czasy wtrysku, pięć pól A/C, Fan1 i Fan2, KR, Closed Loop oraz cztery pozostałe flagi. Dokładny nagłówek i mapowanie znajdują się obok siebie w `sd.h`. Nazwy kanałów ECU odpowiadają katalogowi P59 Scanner, a `AFR 1` / `AFR 2` jego P59.Maths.xml.
 
 Jednostki nie wynikają z nazwy kolumny. Dla późniejszego importera należy użyć tej tabeli, a nie domyślnych jednostek amerykańskich z katalogu:
 
@@ -41,14 +41,14 @@ Jednostki nie wynikają z nazwy kolumny. Dla późniejszego importera należy u�
 | PRNDL Status, Trans Shift Mode | surowy kod wyliczenia z katalogu |
 | Pozostałe nowe kolumny | logiczne 0/1, po zastosowaniu inwersji katalogowej |
 
-Nowe dane starsze niż 3 s lub nigdy nieodebrane mają puste komórki. Dla dotychczasowych kanałów pozostaje wcześniejsze zachowanie. Poprawiono zapis Engine Oil Pressure: wartość wewnętrzna oznacza dziesiąte części bara, więc 33 zapisujemy jako `3,3`, nie `0,33`. Nie zmienia to bufora ani API LTE.
+Wszystkie kolumny CSV zapisują ostatnią odebraną wartość bez limitu wieku. Pole pozostaje puste tylko do pierwszego odczytu od uruchomienia; prawidłowe zero zapisuje się jako zero. Dotyczy to również czujników lokalnych i GPS. Restart zeruje tę pamięć. Reguła CSV nie zmienia limitów świeżości kontrolek ani danych LTE. Poprawiono zapis Engine Oil Pressure: wartość wewnętrzna oznacza dziesiąte części bara, więc 33 zapisujemy jako `3,3`, nie `0,33`. Nie zmienia to bufora ani API LTE.
 
 Wspólne bajty i bity (numery od 0):
 
-- 1100: AC Requested 0, AC Active 1, Controller Reset 2, AC Clutch Engaged 3, AC Disable (Pressure) 4, AC Disable (WOT) 6, Generator L Term 7.
-- 1106: Fan 1 0, Fan 2 1, TCS Request 7.
-- 1102: Traction Control System 0 (odwrócony), VATS Status 1, Reverse Inhibited 4 (odwrócony), TCC Applied 7.
-- 1105: Closed Loop Active 0, O2 B1S1 Ready 1, O2 B1S2 Ready 2, O2 B2S1 Ready 3, O2 B2S2 Ready 4, Fuel Trim Learn 5, Cold Start 6.
+- 1100: AC Requested 0, AC Active 1, AC Clutch Engaged 3, AC Disable (Pressure) 4, AC Disable (WOT) 6.
+- 1106: Fan 1 0, Fan 2 1.
+- 1102: Reverse Inhibited 4 (odwrócony), TCC Applied 7.
+- 1105: Closed Loop Active 0, O2 B1S1 Ready 1, O2 B2S1 Ready 3, Fuel Trim Learn 5.
 
 Closed Loop Active to nazwa stanu dostępnego w katalogu, odpowiadającego żądanemu wskaźnikowi pracy w closed loop. Nie zmienia nastaw ECU.
 

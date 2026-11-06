@@ -44,7 +44,7 @@ byte1 0x48 - Report Control of On-Board System, Test, or Component
 byte2 0x6B -  Report Legislated Dianostics
 */
 
-// Base order is fixed by the CSV and binary LTE API. Additional channels follow.
+// Base order is fixed by the binary LTE API. CSV has its own column order.
 enum ChannelId : uint8_t {
 	AIR,
 	MAP,

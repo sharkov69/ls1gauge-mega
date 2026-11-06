@@ -60,26 +60,56 @@ void addLogEntry() {
 File sdLogFile;
 SdSampleClock sdClock;
 const char sdCsvHeader[] PROGMEM =
-    "Datetime;Intake Air Temp (SAE);Intake Manifold Absolute Pressure (SAE);Throttle Position "
-    "(SAE);Control Module Voltage;AFR 2;Vehicle Speed (SAE);Trans Fluid Temp;Engine Oil "
-    "Pressure;Engine RPM (SAE);Engine Coolant Temp (SAE);AFR 1;Vent Temp;Vent Humidity(%);Outside "
-    "Temp;Inside Temp;Latitude;Longitude"
-    ";Timing Advance (SAE);PRNDL Status;TCC Applied;Trans Shift Mode;Injector Pulse Width Avg. "
-    "Bank 1;Injector Pulse Width Avg. Bank 2;AC Requested;Fan 1;Knock Retard;Closed Loop Active"
-    ";Fan 2;AC Active;AC Clutch Engaged;AC Disable (Pressure);AC Disable (WOT);Controller "
-    "Reset;Generator L Term;TCS Request;VATS Status;Traction Control System;Reverse Inhibited;Fuel "
-    "Trim Learn;O2 B1S1 Ready;O2 B1S2 Ready;O2 B2S1 Ready;O2 B2S2 Ready;Cold Start";
-struct CsvExtraField {
+	"Datetime;Control Module Voltage;Engine RPM (SAE);Vehicle Speed (SAE);"
+	"Throttle Position (SAE);Intake Air Temp (SAE);Engine Coolant Temp (SAE);Trans Fluid Temp;"
+	"Intake Manifold Absolute Pressure (SAE);Engine Oil Pressure;Timing Advance (SAE);AFR 1;"
+	"AFR 2;Vent Temp;Vent Humidity(%);Outside Temp;Inside Temp;Latitude;Longitude;PRNDL Status;"
+	"TCC Applied;Trans Shift Mode;Injector Pulse Width Avg. Bank 1;"
+	"Injector Pulse Width Avg. Bank 2;AC Requested;AC Active;AC Clutch Engaged;"
+	"AC Disable (Pressure);AC Disable (WOT);Fan 1;Fan 2;Knock Retard;Closed Loop Active;"
+	"Reverse Inhibited;Fuel Trim Learn;O2 B1S1 Ready;O2 B2S1 Ready";
+struct CsvField {
 	uint8_t source, mask, invert;
 };
-const CsvExtraField csvExtraFields[] PROGMEM = {
-    {SA, 0, 0},         {PRNDL, 0, 0},       {TCC, 128, 0},     {SHIFT_MODE, 0, 0},
-    {INJ1, 0, 0},       {INJ2, 0, 0},        {AC_STATE, 1, 0},  {FAN_STATE, 1, 0},
-    {KR, 0, 0},         {CL_STATE, 1, 0},    {FAN_STATE, 2, 0}, {AC_STATE, 2, 0},
-    {AC_STATE, 8, 0},   {AC_STATE, 16, 0},   {AC_STATE, 64, 0}, {AC_STATE, 4, 0},
-    {AC_STATE, 128, 0}, {FAN_STATE, 128, 0}, {TCC, 2, 0},       {TCC, 1, 1},
-    {TCC, 16, 1},       {CL_STATE, 32, 0},   {CL_STATE, 2, 0},  {CL_STATE, 4, 0},
-    {CL_STATE, 8, 0},   {CL_STATE, 16, 0},   {CL_STATE, 64, 0}};
+// CSV order is independent of the fixed LTE channel order.
+const CsvField csvFields[] PROGMEM = {
+	{BATT, 0, 0},
+	{RPM, 0, 0},
+	{SPEED, 0, 0},
+	{TPS, 0, 0},
+	{AIR, 0, 0},
+	{WATER, 0, 0},
+	{TRANS, 0, 0},
+	{MAP, 0, 0},
+	{OIL, 0, 0},
+	{SA, 0, 0},
+	{O2, 0, 0},
+	{O22, 0, 0},
+	{TEMP_AC, 0, 0},
+	{HUM, 0, 0},
+	{TEMP_OUT, 0, 0},
+	{TEMP_IN, 0, 0},
+	{LAT, 0, 0},
+	{LON, 0, 0},
+	{PRNDL, 0, 0},
+	{TCC, 128, 0},
+	{SHIFT_MODE, 0, 0},
+	{INJ1, 0, 0},
+	{INJ2, 0, 0},
+	{AC_STATE, 1, 0},
+	{AC_STATE, 2, 0},
+	{AC_STATE, 8, 0},
+	{AC_STATE, 16, 0},
+	{AC_STATE, 64, 0},
+	{FAN_STATE, 1, 0},
+	{FAN_STATE, 2, 0},
+	{KR, 0, 0},
+	{CL_STATE, 1, 0},
+	{TCC, 16, 1},
+	{CL_STATE, 32, 0},
+	{CL_STATE, 2, 0},
+	{CL_STATE, 8, 0},
+};
 // Exact decimal formatting without a floating-point or line buffer.
 void sdPrintFixed(int32_t value, uint32_t scale) {
 	const uint32_t magnitude = value < 0 ? 0u - (uint32_t)value : (uint32_t)value;
@@ -140,9 +170,9 @@ void updateLogToSD() {
 	record.minute = timestamp.minute();
 	record.second = timestamp.second();
 	for (uint8_t i = 0; i < BASE_CHANNEL_COUNT; ++i) {
-		record.data[i] = channels[i].value == -32768 ? 0 : channels[i].value;
+		record.data[i] = channels[i].value;
 		if (i == 15 || i == 16)
-			record.data[i + 2] = gpsHigh[i - LAT] == -32768 ? 0 : gpsHigh[i - LAT];
+			record.data[i + 2] = gpsHigh[i - LAT];
 	}
 	if (sdLogFile &&
 	    (sdYear != timestamp.year() || sdMonth != timestamp.month() || sdDay != timestamp.day())) {
@@ -195,42 +225,40 @@ void updateLogToSD() {
 	snprintf(line, sizeof(line), "%04u-%02u-%02u %02u:%02u:%02u,%03u", sdYear, sdMonth, record.day,
 	         record.hour, record.minute, record.second, sdClock.fraction);
 	sdLogFile.print(line);
-	for (uint8_t j = 0; j < BASE_CHANNEL_COUNT; ++j) {
+	for (uint8_t i = 0; i < sizeof(csvFields) / sizeof(csvFields[0]); ++i) {
+		CsvField field;
+		memcpy_P(&field, csvFields + i, sizeof(field));
 		sdLogFile.print(';');
-		if (j == 3 || (j >= 11 && j <= 14))
-			sdPrintFixed(record.data[j], 10);
-		else if (j == 7)
-			sdPrintFixed(record.data[j], 10); // Oil is stored in tenths of bar.
-		else if (j == 1 || j == 4 || j == 10)
-			sdPrintFixed(record.data[j], 100);
-		else if (j == 15 || j == 16)
-			sdPrintFixed((int32_t)(((uint32_t)(uint16_t)record.data[j + 2] << 16) |
-			                       (uint16_t)record.data[j]),
-			             1000000);
-		else
-			sdLogFile.print(record.data[j]);
-	}
-	// Extra fields are SD-only. No enlargement of the 30-record LTE buffer.
-	for (uint8_t i = 0; i < sizeof(csvExtraFields) / sizeof(csvExtraFields[0]); ++i) {
-		CsvExtraField f;
-		memcpy_P(&f, csvExtraFields + i, sizeof(f));
-		sdLogFile.print(';');
-		if (!channels[f.source].fresh(sampleMs, 3000))
-			continue; // Missing/stale is blank, never a false zero.
-		const uint16_t raw = channels[f.source].raw();
-		if (f.mask)
-			sdLogFile.print((int)(((raw & f.mask) != 0) ^ f.invert));
-		else if (f.source == SA)
+		if (!channels[field.source].valid)
+			continue; // Blank only until the first received value, including a valid zero.
+		const uint8_t id = field.source;
+		if (id < BASE_CHANNEL_COUNT) {
+			if (id == BATT || id == OIL || (id >= TEMP_AC && id <= TEMP_IN))
+				sdPrintFixed(record.data[id], 10);
+			else if (id == MAP || id == O2 || id == O22)
+				sdPrintFixed(record.data[id], 100);
+			else if (id == LAT || id == LON)
+				sdPrintFixed((int32_t)(((uint32_t)(uint16_t)record.data[id + 2] << 16) |
+				                       (uint16_t)record.data[id]), 1000000);
+			else
+				sdLogFile.print(record.data[id]);
+			continue;
+		}
+		const uint16_t raw = channels[id].raw();
+		if (field.mask)
+			sdLogFile.print((int)(((raw & field.mask) != 0) ^ field.invert));
+		else if (id == SA)
 			sdPrintFixed(((int32_t)raw - 128) * 5, 10);
-		else if (f.source == KR)
+		else if (id == KR)
 			sdPrintFixed(((uint32_t)raw * 800 + 45) / 91, 100);
-		else if (f.source == INJ1 || f.source == INJ2) {
+		else if (id == INJ1 || id == INJ2) {
 			const uint32_t numerator = (uint32_t)raw * 1000;
 			sdPrintFixed((numerator / 65535) * 1000 + ((numerator % 65535) * 1000 + 32767) / 65535,
 			             1000);
 		} else
 			sdLogFile.print(raw);
 	}
+
 	sdLogFile.println();
 	if (sdLogFile.getWriteError()) {
 		sdWriteFailed();

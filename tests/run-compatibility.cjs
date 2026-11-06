@@ -88,7 +88,8 @@ if (result.status !== 0) {
     console.error(result.stdout, result.stderr);
     process.exit(result.status || 1);
 }
-for (const name of ['csv', 'lte', 'display', 'channels']) {
+// CSV intentionally has a new schema; storage_tests checks its exact header and values.
+for (const name of ['lte', 'display', 'channels']) {
     const before = fs.readFileSync(`${out}/before-${name}.bin`);
     const after = fs.readFileSync(`${out}/after-${name}.bin`);
     if (!before.equals(after)) throw new Error(`${name}: output differs from ${baseCommit}`);

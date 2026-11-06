@@ -28,7 +28,7 @@ static int failures=0;
 #define CHECK(c) do{if(!(c)){printf("FAIL line %d: %s\n",__LINE__,#c);++failures;}}while(0)
 void put32(std::vector<uint8_t>& b,size_t i,uint32_t value){for(int j=0;j<4;++j)b[i+j]=(uint8_t)(value>>(j*8));}
 int main(){
-  for (auto& channel : channels) channel.value = 0;
+  for (auto& channel : channels) channel.set(0);
   gpsHigh[0] = gpsHigh[1] = 0;
   // File metadata must use the hardware RTC, not the library's default date.
   FsDateTime::setCallback(sdDateTime);
@@ -45,12 +45,12 @@ int main(){
   auto file=disk["l-261027.csv"];CHECK(file!=nullptr);
   if(!file)return 1;
   CHECK(file->date==FS_DATE(2026,10,27));CHECK(file->time==FS_TIME(12,0,0));
-  CHECK(file->text.find("Datetime;")==0);
+  CHECK(file->text.substr(0, file->text.find('\n')) == "Datetime;Control Module Voltage;Engine RPM (SAE);Vehicle Speed (SAE);Throttle Position (SAE);Intake Air Temp (SAE);Engine Coolant Temp (SAE);Trans Fluid Temp;Intake Manifold Absolute Pressure (SAE);Engine Oil Pressure;Timing Advance (SAE);AFR 1;AFR 2;Vent Temp;Vent Humidity(%);Outside Temp;Inside Temp;Latitude;Longitude;PRNDL Status;TCC Applied;Trans Shift Mode;Injector Pulse Width Avg. Bank 1;Injector Pulse Width Avg. Bank 2;AC Requested;AC Active;AC Clutch Engaged;AC Disable (Pressure);AC Disable (WOT);Fan 1;Fan 2;Knock Retard;Closed Loop Active;Reverse Inhibited;Fuel Trim Learn;O2 B1S1 Ready;O2 B2S1 Ready");
   CHECK(file->text.find("Uptime_ms")==std::string::npos);
-  CHECK(file->text.find(";Timing Advance (SAE);PRNDL Status;TCC Applied;Trans Shift Mode;")!=std::string::npos);
-  CHECK(file->text.find(";Fan 2;AC Active;AC Clutch Engaged;")!=std::string::npos);
+  CHECK(file->text.find(";PRNDL Status;TCC Applied;Trans Shift Mode;")!=std::string::npos);
+  CHECK(file->text.find(";Fan 1;Fan 2;Knock Retard;")!=std::string::npos);
   CHECK(file->text.find("2026-10-27 12:00:00,000;")!=std::string::npos);
-  CHECK(file->text.find(";-10,0;8;1;7;0,290;1000,000;1;1;8,00;1;1;1;1;")!=std::string::npos);
+  CHECK(file->text.find(";8;1;7;0,290;1000,000;1;1;1;0;0;1;1;8,00;1;1;1;1;0")!=std::string::npos);
   CHECK(std::count(file->text.begin(),file->text.end(),'\n')==2);
   testUs=399000;updateLogToSD();CHECK(sdRows==1);
   for(int i=2;i<=5;++i){testUs=i*200000;updateLogToSD();}
@@ -58,7 +58,7 @@ int main(){
   CHECK(file->text.find("2026-10-27 12:00:00,800;")!=std::string::npos);
   testUs=1200000;updateLogToSD();CHECK(file->syncs==1);
   testUs=3200000;updateLogToSD();CHECK(sdRows==7); // One row, not ten copies after a delay.
-  CHECK(file->text.substr(file->text.size()-28)==std::string(27,';')+"\n"); // Stale extras are empty.
+  CHECK(file->text.substr(file->text.rfind('\n', file->text.size()-2)+1).find(";8;1;7;0,290;1000,000;1;1;1;0;0;1;1;8,00;1;1;1;1;0")!=std::string::npos); // Last received values survive the old 3 s timeout.
   CHECK(memcmp(&saved,&logBuffer[0],sizeof(saved))==0);
   CHECK(logIndex==1&&logGeneration==generation); // SD cannot consume/reset the LTE buffer.
   file->error=true;testUs=3400000;updateLogToSD();CHECK(sdErrors==1);
@@ -90,12 +90,12 @@ int main(){
   updateLogToSD();
   CHECK(disk["l-261027.bak"]==old);CHECK(old->text=="Datetime,RPM\nold data\n");
   auto excel=disk["l-261027.csv"];CHECK(excel!=old);
-  CHECK(excel->text.find(";1,23;0;13,8;14,75;")!=std::string::npos);
+  CHECK(excel->text.find(";13,8;2347;0;0;0;0;0;1,23;0,0;-10,0;0,00;14,75;")!=std::string::npos);
   CHECK(excel->text.find(";-12,5;")!=std::string::npos);
   CHECK(excel->text.find(";52,158545;")!=std::string::npos);
   auto firstLine=excel->text.find('\n');
-  CHECK(std::count(excel->text.begin(),excel->text.begin()+firstLine,';')==44);
-  CHECK(std::count(excel->text.begin()+firstLine,excel->text.end(),';')==44);
+  CHECK(std::count(excel->text.begin(),excel->text.begin()+firstLine,';')==36);
+  CHECK(std::count(excel->text.begin()+firstLine,excel->text.end(),';')==36);
   testUs=2200000;updateLogToSD();CHECK(excel->time==FS_TIME(12,0,2));
   sdLogFile.close();testUs=2400000;updateLogToSD();CHECK(disk["l-261027.csv"]==excel);
   CHECK(std::count(excel->text.begin(),excel->text.end(),'\n')==4); // Header not repeated on reopen.
@@ -118,5 +118,25 @@ int main(){
   put32(b,18,256);startDrawBMP("test.bmp");CHECK(!bmpDrawing);
   put32(b,18,17);b.resize(60);startDrawBMP("test.bmp");continueDrawBMP();CHECK(!bmpDrawing);
   startDrawBMP("missing.bmp");CHECK(!bmpDrawing);
+
+  // Never received is blank; a real zero and old readings remain numeric.
+  sdLogFile.close(); disk.clear(); sdClock={}; sdLastSample=0; sdBackoff=false;
+  for (auto& channel : channels) channel = Channel{};
+  testUs=200000; updateLogToSD();
+  auto missing=disk["l-261027.csv"];
+  CHECK(missing->text.substr(missing->text.find('\n')+1)=="2026-10-27 12:00:00,000"+std::string(36,';')+"\n");
+  channels[BATT].set(0); channels[RPM].set(1234); channels[SA].setRaw(128,millis());
+  channels[FAN_STATE].setRaw(0,millis()); channels[INJ1].setRaw(32768,millis());
+  channels[LAT].set((int16_t)0x8000); gpsHigh[0]=1;
+  testUs=400000; updateLogToSD();
+  auto retained=missing->text.substr(missing->text.rfind('\n',missing->text.size()-2)+1);
+  CHECK(retained.find(";0,0;1234;")!=std::string::npos);
+  CHECK(retained.find(";0,098304;")!=std::string::npos);
+  CHECK(retained.find("500,008")!=std::string::npos);
+  testUs=10000000; updateLogToSD();
+  auto later=missing->text.substr(missing->text.rfind('\n',missing->text.size()-2)+1);
+  CHECK(retained.substr(23)==later.substr(23));
+  channels[RPM].set(0); testUs=10200000; updateLogToSD();
+  CHECK(missing->text.substr(missing->text.rfind('\n',missing->text.size()-2)+1).find(";0,0;0;")!=std::string::npos);
   printf("Storage failures: %d\n",failures);return failures?1:0;
 }
