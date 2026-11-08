@@ -345,9 +345,6 @@ void drawCamaroLogo() {
   drawStartScreen();
   tft.fillScreen(GC9A01A_BLACK);
   drawRLEImage(Camaro_RLE, sizeof(Camaro_RLE), 179, 220, (240-179)/2, (240-220)/2);
-  //delay(2000);
-  
-  
 }
 
 

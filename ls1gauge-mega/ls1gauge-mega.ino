@@ -3,6 +3,7 @@
 
 #define LOGO
 bool demo;
+bool menuActive = false;
 bool guiMode;
 bool clockMode;
 uint8_t pause;
@@ -72,11 +73,25 @@ void drawClimateIndicators(bool force = false);
 #include "sd.h"
 #include "drawbmp.h"
 #include "modem.h"
-#include "modem-post.h"
+#include "csv_upload_queue.h"
+#include "csv_provision.h"
+#include "modem-csv.h"
 
 #include "display.h"
 #include "menu.h"
 #include "console.h"
+
+#if DEBUG_MODEM
+ISR(WDT_vect) {
+	debugWatchdogExpired();
+	wdt_enable(WDTO_15MS);
+	for (;;) {} // Fatal timeout: preserve the breadcrumb until hardware resets, no I/O.
+}
+#endif
+void debugSetupStage(uint8_t stage) {
+	debugStage(stage);
+	modemDebugNumber('B', 'S', stage);
+}
 
 void setup() {
 #if DEBUG_MODEM
@@ -87,12 +102,14 @@ void setup() {
 	Serial.begin(115200);
 	Serial1.begin(115200);
 	modemDebugLoad();
+	debugBootBegin(modemDebugResetFlags);
+	debugBootReport();
 	modemDebugNumber('B', 'O', modemDebugResetFlags);
-	pinMode(12, OUTPUT);
-	digitalWrite(12, LOW);
+	modemPowerKey(false);
 
 	modemInitStart();
 
+	debugSetupStage(2);
 	sensors.begin();
 
 	sensors.setWaitForConversion(false);
@@ -107,6 +124,7 @@ void setup() {
 	pinMode(BUTTON1_PIN, INPUT_PULLUP);
 	pinMode(BUTTON2_PIN, INPUT_PULLUP);
 	pinMode(BUTTON3_PIN, INPUT_PULLUP);
+	debugSetupStage(3);
 	if (!rtc.begin()) {
 		DBGL(F("RTC nie działa!"));
 		while (1)
@@ -118,21 +136,15 @@ void setup() {
 	pinMode(sqwPin, INPUT);
 	attachInterrupt(digitalPinToInterrupt(sqwPin), sqwISR, FALLING);
 	FsDateTime::setCallback(sdDateTime);
+	debugSetupStage(4);
 	if (!SD.begin(sdCS, SPI_FULL_SPEED)) {
 		DBGL(F("Blad SD!"));
 	}
+	debugSetupStage(5);
 	loadBMP();
-	readTokenFromEEPROM(token);
-
-	if (token[0] < 33 || token[0] > 126) {
-		DBGL(F("Generuję nowy token..."));
-		generateToken(token, TOKEN_LENGTH);
-		saveTokenToEEPROM(token);
-	}
-
-	DBG(F("Token: "));
-	DBGL(token);
-	demo = EEPROM.read(EEPROM_DEMO_ADDR);
+	debugSetupStage(6);
+	csvLoadProvisioning();
+	demo = EEPROM.read(EEPROM_DEMO_ADDR) == 1;
 	guiMode = EEPROM.read(EEPROM_GUI_ADDR);
 	clockMode = EEPROM.read(EEPROM_CLOCK_ADDR);
 	pause = EEPROM.read(EEPROM_PAUSE_ADDR);
@@ -141,6 +153,7 @@ void setup() {
 		EEPROM.update(EEPROM_PAUSE_ADDR, pause);
 	}
 
+	debugSetupStage(7);
 	tft.begin();
 	tft.fillScreen(GC9A01A_BLACK);
 	tft2.begin();
@@ -152,6 +165,7 @@ void setup() {
 #ifdef DEBUGVPW
 	vpw.onError(handleError);
 #endif
+	debugSetupStage(8);
 	vpw.init(RX, TX);
 
 	lastStats = (uint16_t)(millis() & 0xFFFF);
@@ -161,16 +175,23 @@ void setup() {
 	DBGL(F("Setup done."));
 #endif
 	wdt_enable(WDTO_4S);
+#if DEBUG_MODEM
+	WDTCSR |= _BV(WDIE);
+#endif
+	debugSetupStage(9);
 }
 
 void loop(void) {
 
 	const uint32_t loopStarted = micros();
+	debugStage(10);
 	sampleFreeRam();
 	updateScreenPower();
 	czas = (uint16_t)(millis() & 0xFFFF);
+	debugStage(11);
 	read();
 	if (modemNeedsFastService()) {
+		debugStage(12);
 		modemInitTick();
 		wdt_reset();
 		const uint32_t loopUs = micros() - loopStarted;
@@ -178,32 +199,14 @@ void loop(void) {
 			maxLoopUs = loopUs;
 		return; // GPS response/timeout only; VPW reception continues on every pass.
 	}
+	debugStage(13);
 	send();
+	debugStage(14);
 
-	if (!guiStarted && !bmpDrawing && (uint16_t)(czas - guiStartTime) >= 5000) {
-		guiStarted = true;
-		if (guiMode) {
-			drawGUI();
-		} else {
-			drawGUI2();
-		}
-		drawClockGUI();
-	}
+	updateStartupScreen(czas);
+	updateDemo(czas);
 	if (guiStarted && screenPowerReady() && (uint16_t)(czas - lastUpdate) >= refreshInterval) {
 		lastUpdate = czas;
-		if (demo) {
-			channels[RPM].set(randomDelta(channels[RPM].value, 500, 6000, 0.1));
-			channels[SPEED].set(randomDelta(channels[SPEED].value, 0, 200, 0.1));
-			channels[TPS].set(randomDelta(channels[TPS].value, 5, 100, 0.1));
-			channels[TRANS].set(randomDelta(channels[TRANS].value, 20, 100, 0.1));
-			channels[WATER].set(randomDelta(channels[WATER].value, 20, 100, 0.1));
-			channels[AIR].set(randomDelta(channels[AIR].value, 5, 35, 0.1));
-			channels[O2].set(randomDelta(channels[O2].value, 1000, 1900, 0.1));
-			channels[O22].set(randomDelta(channels[O22].value, 1000, 1900, 0.1));
-			channels[OIL].set(randomDelta(channels[OIL].value, -10, 30, 0.1));
-			channels[BATT].set(randomDelta(channels[BATT].value, 131, 146, 0.1));
-			channels[MAP].set(randomDelta(channels[MAP].value, 30, 70, 0.1));
-		} // else {refreshInterval = 250;}
 
 		// Presentation limits must not overwrite the measurements used by SD/LTE.
 		const int16_t displayRpm = ((constrain(channels[RPM].value, 0, 6000) + 12) / 25) * 25;
@@ -307,92 +310,14 @@ void loop(void) {
 		}
 	}
 
-	if (!menuActive && digitalRead(BUTTON2_PIN) == LOW &&
-	    (uint16_t)(czas - menuStartTime) > debounceTime) {
-		menuActive = true;
-		menuStartTime = czas;
-		menuPosition = 0;
-		if (!ekranWlaczony) {
-			obudzEkran();
-			ekranWlaczony = true;
-		}
-		drawMenu();
-	}
-	if (!menuActive && digitalRead(BUTTON1_PIN) == LOW &&
-	    (uint16_t)(czas - menuStartTime) > debounceTime) {
-		menuStartTime = czas;
-		if (ekranWlaczony) {
-			wygasEkran();
-		} else {
-			obudzEkran();
-		}
-		ekranWlaczony = !ekranWlaczony;
-	}
-	if (!menuActive && digitalRead(BUTTON3_PIN) == LOW &&
-	    (uint16_t)(czas - menuStartTime) > debounceTime) {
-		menuStartTime = czas;
-		demo = !demo;
-		EEPROM.update(EEPROM_DEMO_ADDR, demo);
-	}
-	if (pauseSubActive) {
-		if ((uint16_t)(czas - menuStartTime) >= MENU_TIMEOUT_MS) {
-			pauseSubActive = false;
-			menuActive = false;
-			drawClockGUI();
-			drawTFT2();
-			return;
-		}
+	debugStage(15);
+	handleMenuButtons(czas);
 
-		if (digitalRead(BUTTON3_PIN) == LOW && (uint16_t)(czas - menuStartTime) > debounceTime) {
-			menuStartTime = czas;
-			if (pause >= 25 + 10) {
-				pause -= 10;
-				EEPROM.update(EEPROM_PAUSE_ADDR, pause);
-				drawPauseSubmenu();
-			}
-		}
-		if (digitalRead(BUTTON1_PIN) == LOW && (uint16_t)(czas - menuStartTime) > debounceTime) {
-			menuStartTime = czas;
-			if (pause + 10 <= 125) {
-				pause += 10;
-				EEPROM.update(EEPROM_PAUSE_ADDR, pause);
-				drawPauseSubmenu();
-			}
-		}
-		if (digitalRead(BUTTON2_PIN) == LOW && (uint16_t)(czas - menuStartTime) > debounceTime) {
-			// OK / BACK → wyjście do głównego menu
-			menuStartTime = czas;
-			pauseSubActive = false;
-			menuActive = true;
-			drawMenu();
-		}
-	}
-	if (menuActive) {
-		if ((uint16_t)(czas - menuStartTime) >= MENU_TIMEOUT_MS) {
-			menuActive = false;
-			drawClockGUI();
-			drawTFT2();
-			return;
-		}
-		if (digitalRead(BUTTON1_PIN) == LOW && (uint16_t)(czas - menuStartTime) > debounceTime) {
-			menuStartTime = czas;
-			menuPosition = (menuPosition + 5) % 6; // w górę
-			drawMenu();
-		}
-		if (digitalRead(BUTTON3_PIN) == LOW && (uint16_t)(czas - menuStartTime) > debounceTime) {
-			menuStartTime = czas;
-			menuPosition = (menuPosition + 1) % 6; // w dół
-			drawMenu();
-		}
-		if (digitalRead(BUTTON2_PIN) == LOW && (uint16_t)(czas - menuStartTime) > debounceTime) {
-			menuStartTime = czas;
-			handleMenuOption(menuPosition);
-		}
-	}
-
+	debugStage(16);
 	if (bmpDrawing) {
 		continueDrawBMP();
 	}
+	debugStage(17);
 	if ((uint16_t)(czas - lastDHTread) >= SENSORS_INTERVAL) {
 		lastDHTread = czas;
 
@@ -405,8 +330,13 @@ void loop(void) {
 
 		} else {
 		}
-		channels[TEMP_OUT].set((int16_t)((sensors.getTemp(tempOut) * 10 + 64) >> 7));
-		channels[TEMP_IN].set((int16_t)((sensors.getTemp(tempIn) * 10 + 64) >> 7));
+		const int32_t outsideRaw = sensors.getTemp(tempOut);
+		const int32_t insideRaw = sensors.getTemp(tempIn);
+		// Dallas returns a raw error code on disconnect; retain the last valid sample.
+		if (outsideRaw > DEVICE_DISCONNECTED_RAW)
+			channels[TEMP_OUT].set((int16_t)((outsideRaw * 10 + 64) >> 7));
+		if (insideRaw > DEVICE_DISCONNECTED_RAW)
+			channels[TEMP_IN].set((int16_t)((insideRaw * 10 + 64) >> 7));
 		sensors.requestTemperatures(); // rozpocznij kolejny pomiar
 		if (modemInitDone())
 			getGPSInfo();
@@ -414,52 +344,47 @@ void loop(void) {
 
 	if (tick) {
 		tick = false;
+		debugStage(18);
 		now = rtc.now();
+		debugStage(19);
 
-		tft.setTextSize(2);
-		tft.setTextColor(GC9A01A_RED);
-		if (modemInitDone() && modemOnline) {
-			blinkState = !blinkState;
+		if (guiStarted && screenPowerReady()) {
+			tft.setTextSize(2);
+			tft.setTextColor(GC9A01A_RED);
+			if (modemInitDone() && modemOnline) {
+				blinkState = !blinkState;
 
-			if (blinkState) {
-				tft.setCursor(25, 55);
-				tft.print("*");
+				if (blinkState) {
+					tft.setCursor(25, 55);
+					tft.print("*");
+				} else {
+					tft.setCursor(25, 55);
+					tft.fillRect(25, 55, 15, 15, GC9A01A_BLACK);
+				}
 			} else {
 				tft.setCursor(25, 55);
 				tft.fillRect(25, 55, 15, 15, GC9A01A_BLACK);
+				blinkState = false;
 			}
-		} else {
-			tft.setCursor(25, 55);
-			tft.fillRect(25, 55, 15, 15, GC9A01A_BLACK);
-			blinkState = false;
-		}
-		for (uint8_t i = 0; i < BASE_CHANNEL_COUNT; i++) {
-			sums[i] += (channels[i].value == -32768) ? 0 : channels[i].value;
-			if (i == 15 || i == 16) {
-				sums[i + 2] += (gpsHigh[i - LAT] == -32768) ? 0 : gpsHigh[i - LAT];
-			}
-		}
-		count++;
-		if (count >= SREDNIA) {
-			addLogEntry();
-			count = 0;
-		}
-		if (logIndex >= LOG_ENTRIES) {
-			++logGeneration;
-			if (modemInitDone()) {
-				startSendLog();
-			}
-			// getGPSInfo();
-			logIndex = 0;
 		}
 		if (!menuActive && screenPowerReady()) {
 			drawTFT2();
 		}
 	}
+	debugStage(20);
 	read();
+	debugStage(21);
 	updateLogToSD();
+	debugStage(22);
+	if (csvProvisioned && csvTlsQualified && modemOwner == OWNER_IDLE && !at.busy && !at.done)
+		csvQueueTick();
+	debugStage(23);
+	csvUploadScheduler();
+	debugStage(24);
 	handleConsole();
+	debugStage(25);
 	modemInitTick();
+	debugStage(26);
 	static uint32_t lastKick = 0;
 	uint32_t now = millis();
 	if (now - lastKick >= 2000) { // nie musisz karmić co iterację

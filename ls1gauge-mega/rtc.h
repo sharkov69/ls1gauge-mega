@@ -6,40 +6,61 @@ DateTime now;
 
 #include <EEPROM.h>
 #define EEPROM_DST_FLAG_ADDR 0
-#define EEPROM_TOKEN_ADDR 1
 #define EEPROM_DEMO_ADDR 14
 #define EEPROM_GUI_ADDR 15
 #define EEPROM_CLOCK_ADDR 16
 #define EEPROM_PAUSE_ADDR 17
 
-#define TOKEN_LENGTH 12
-
-const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                       "abcdefghijklmnopqrstuvwxyz"
-                       "0123456789"
-                       "!@#$%^&*";
-
-char token[TOKEN_LENGTH + 1]; // +1 na null
-
-void generateToken(char *buffer, uint8_t length) {
-	for (uint8_t i = 0; i < length; i++) {
-		buffer[i] = charset[random(0, sizeof(charset) - 1)];
+bool parseModemClock(const char *line, uint32_t &utc) {
+	if (strncmp_P(line, PSTR("+CCLK: \""), 8) != 0)
+		return false;
+	const char *p = line + 8;
+	if (strlen(p) != 21 || p[20] != '"')
+		return false;
+	uint8_t values[7];
+	for (uint8_t i = 0; i < 7; ++i) {
+		const uint8_t pos = i * 3;
+		if (p[pos] < '0' || p[pos] > '9' || p[pos + 1] < '0' || p[pos + 1] > '9')
+			return false;
+		values[i] = (p[pos] - '0') * 10 + p[pos + 1] - '0';
 	}
-	buffer[length] = '\0';
+	if (p[2] != '/' || p[5] != '/' || p[8] != ',' || p[11] != ':' || p[14] != ':' ||
+	    (p[17] != '+' && p[17] != '-') || values[0] < 20 || values[1] < 1 ||
+	    values[1] > 12 || values[2] < 1 || values[2] > 31 || values[3] > 23 ||
+	    values[4] > 59 || values[5] > 59 || values[6] > 96)
+		return false;
+	const DateTime value(2000 + values[0], values[1], values[2], values[3], values[4], values[5]);
+	if (!value.isValid())
+		return false;
+	const int32_t offset = (int32_t)values[6] * 900 * (p[17] == '+' ? 1 : -1);
+	utc = value.unixtime() - offset;
+	return true;
 }
 
-void saveTokenToEEPROM(const char *buffer) {
-	for (uint8_t i = 0; i < TOKEN_LENGTH; i++) {
-		EEPROM.write(EEPROM_TOKEN_ADDR + i, buffer[i]);
-	}
-	EEPROM.write(EEPROM_TOKEN_ADDR + TOKEN_LENGTH, '\0'); // null terminator
+bool warsawSummerTime(const DateTime &utc) {
+	const uint8_t month = utc.month();
+	if (month < 3 || month > 10)
+		return false;
+	if (month > 3 && month < 10)
+		return true;
+	const uint8_t sunday = 31 - DateTime(utc.year(), month, 31).dayOfTheWeek();
+	const bool afterChange = utc.day() > sunday || (utc.day() == sunday && utc.hour() >= 1);
+	return month == 3 ? afterChange : !afterChange;
 }
 
-void readTokenFromEEPROM(char *buffer) {
-	for (uint8_t i = 0; i <= TOKEN_LENGTH; i++) {
-		buffer[i] = EEPROM.read(EEPROM_TOKEN_ADDR + i);
-	}
+bool syncRtcUtc(uint32_t utcSeconds) {
+	const bool summer = warsawSummerTime(DateTime(utcSeconds));
+	const DateTime local(utcSeconds + (summer ? 7200UL : 3600UL));
+	const int32_t difference = (int32_t)(local.unixtime() - rtc.now().unixtime());
+	EEPROM.update(EEPROM_DST_FLAG_ADDR, summer ? 1 : 0);
+	if (difference >= -30 && difference <= 30)
+		return false;
+	rtc.adjust(local);
+	now = local;
+	tick = true;
+	return true;
 }
+
 
 bool czyLetni(int day, int month, int weekday) {
 	if (month < 3 || month > 10)
@@ -59,8 +80,9 @@ bool czyLetni(int day, int month, int weekday) {
 
 void sprawdzLetni() {
 	DateTime now = rtc.now();
-	bool nowDST = czyLetni(now.day(), now.month(), now.dayOfTheWeek());
 	uint8_t savedDST = EEPROM.read(EEPROM_DST_FLAG_ADDR);
+	const DateTime utc(now.unixtime() - (savedDST == 1 ? 7200UL : 3600UL));
+	bool nowDST = warsawSummerTime(utc);
 
 	if (nowDST && savedDST == 0) {
 		// był zapisany zimowy, teraz jest letni — dodaj godzinę
@@ -94,10 +116,11 @@ void drawClockTemperature(uint8_t id, const __FlashStringHelper *label, uint8_t 
 	}
 	const uint8_t length = strlen(value), sx = length > 4 ? 1 : 2;
 	tft2.setFont();
-	tft2.fillRect(61, y, 120, 16, GC9A01A_BLACK);
+	const uint8_t labelX = id == TEMP_AC ? 49 : 61;
+	tft2.fillRect(labelX, y, 181 - labelX, 16, GC9A01A_BLACK);
 	tft2.setTextColor(GC9A01A_YELLOW);
 	tft2.setTextSize(2);
-	tft2.setCursor(61, y);
+	tft2.setCursor(labelX, y);
 	tft2.print(label);
 	tft2.setTextSize(sx, 2);
 	tft2.setCursor(157 - length * 6 * sx, y);
@@ -110,6 +133,8 @@ void drawClockTemperature(uint8_t id, const __FlashStringHelper *label, uint8_t 
 }
 
 void drawTFT2() {
+	if (menuActive)
+		return;
 	if (guiStarted) {
 		int16_t kat2 = KAT + map(now.second(), 0, 60, 0, 300);
 
@@ -174,7 +199,7 @@ void drawTFT2() {
 
 			drawClockTemperature(TEMP_IN, F("In: "), 145);
 			drawClockTemperature(TEMP_OUT, F("Out:"), 165);
-			drawClockTemperature(TEMP_AC, F("AC: "), 185);
+			drawClockTemperature(TEMP_AC, F("Vent:"), 185);
 			if (channels[HUM].value != lastDisplayed[HUM]) {
 				tft2.fillRect(73, 205, 96, 16, GC9A01A_BLACK);
 				tft2.setFont();

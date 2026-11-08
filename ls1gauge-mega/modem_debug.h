@@ -2,6 +2,56 @@
 #include "modem_debug_config.h"
 #if DEBUG_MODEM
 #include "modem_debug_control.h"
+// Warm-reset breadcrumbs survive C startup; a power loss can erase them.
+struct DebugBreadcrumb {
+	uint16_t magic;
+	uint8_t stage, watchdog, owner, phase;
+};
+#ifdef __AVR__
+volatile DebugBreadcrumb debugBreadcrumb __attribute__((section(".noinit")));
+#else
+volatile DebugBreadcrumb debugBreadcrumb;
+#endif
+DebugBreadcrumb debugPrevious;
+uint8_t debugResetFlags = 0;
+bool debugBootPending = false;
+
+void debugBootBegin(uint8_t flags) {
+	debugResetFlags = flags;
+	const bool valid = debugBreadcrumb.magic == 0x59d1 && !(flags & 1);
+	debugPrevious.magic = valid ? 0x59d1 : 0;
+	debugPrevious.stage = valid ? debugBreadcrumb.stage : 0;
+	debugPrevious.watchdog = valid ? debugBreadcrumb.watchdog : 0;
+	debugPrevious.owner = valid ? debugBreadcrumb.owner : 0;
+	debugPrevious.phase = valid ? debugBreadcrumb.phase : 0;
+	debugBreadcrumb.magic = 0x59d1;
+	debugBreadcrumb.stage = 1;
+	debugBreadcrumb.watchdog = 0;
+	debugBreadcrumb.owner = debugBreadcrumb.phase = 0;
+	debugBootPending = true;
+}
+void debugStage(uint8_t stage) {
+	if (!debugBreadcrumb.watchdog)
+		debugBreadcrumb.stage = stage;
+}
+void debugWatchdogExpired() {
+	debugBreadcrumb.owner = (uint8_t)modemOwner;
+	debugBreadcrumb.phase = at.phase;
+	debugBreadcrumb.watchdog = 1;
+}
+void debugBootReport() {
+	if (!debugBootPending || !modemDebugEnabled || Serial.availableForWrite() < 60)
+		return;
+	char report[60];
+	const int n = snprintf_P(report, sizeof(report),
+	    PSTR("BOOT raw=%u valid=%u wdt=%u stage=%u owner=%u phase=%u\n"),
+	    debugResetFlags, debugPrevious.magic == 0x59d1, debugPrevious.watchdog,
+	    debugPrevious.stage, debugPrevious.owner, debugPrevious.phase);
+	if (n > 0 && n < (int)sizeof(report)) {
+		Serial.write((const uint8_t *)report, n);
+		debugBootPending = false;
+	}
+}
 int freeRam();
 uint16_t modemDebugDropped = 0, modemDebugTruncated = 0;
 uint32_t modemDebugLastReport = 0;
@@ -68,6 +118,7 @@ void modemDebugRx(char c, bool discarded) {
 	}
 }
 void modemDebugTick() {
+	debugBootReport();
 	modemDebugControlTick(); // Confirm persistence before spending USB slots on log text.
 	if (!modemDebugEnabled)
 		return;
@@ -81,6 +132,10 @@ void modemDebugTick() {
 	modemDebugRecord('H', 'B', detail); // RAM / omitted records / shortened records.
 }
 #else
+#define debugBootBegin(...) ((void)0)
+#define debugBootReport() ((void)0)
+#define debugStage(...) ((void)0)
+#define debugWatchdogExpired() ((void)0)
 #define modemDebugRecord(...) ((void)0)
 #define modemDebugNumber(...) ((void)0)
 #define modemDebugRx(...) ((void)0)

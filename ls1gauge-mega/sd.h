@@ -8,23 +8,13 @@ void sdDateTime(uint16_t *date, uint16_t *time) {
 	*time = FS_TIME(stamp.hour(), stamp.minute(), stamp.second());
 }
 #define sdCS 53
-#define LOG_ENTRIES 30
-struct LogEntry {
+struct SdSnapshot {
 	uint8_t day;
 	uint8_t hour;
 	uint8_t minute;
 	uint8_t second;
-	int16_t data[19]; // Fixed LTE wire layout: 17 low words and 2 GPS high words.
+	int16_t data[19]; // Base channels and two high words of GPS coordinates.
 };
-static_assert(BASE_CHANNEL_COUNT == 17 && sizeof(LogEntry) == 42,
-              "Keep the existing LTE API binary layout");
-LogEntry logBuffer[LOG_ENTRIES];
-// LogEntry logHttpBuffer[LOG_ENTRIES];
-uint8_t logIndex = 0;
-uint16_t logGeneration = 0;
-#define SREDNIA 1 // One RTC 1 Hz snapshot: 30 records per ~30-second LTE upload.
-int32_t sums[BASE_CHANNEL_COUNT + 2] = {0};
-uint8_t count = 0;
 
 void encodeCoord(float deg, int16_t &low, int16_t &high) {
 	int32_t scaled = (int32_t)(deg * 1e6); // np. 52.158512 → 52158512
@@ -37,27 +27,22 @@ float decodeCoord(int16_t low, int16_t high) {
 	return scaled / 1e6;
 }
 
-void addLogEntry() {
-	DateTime now = rtc.now();
 
-	if (logIndex >= LOG_ENTRIES)
-		return; // zabezpieczenie
-	logBuffer[logIndex].day = now.day();
-	logBuffer[logIndex].hour = now.hour();
-	logBuffer[logIndex].minute = now.minute();
-	logBuffer[logIndex].second = now.second();
-
-	for (uint8_t i = 0; i < BASE_CHANNEL_COUNT + 2; i++) {
-		logBuffer[logIndex].data[i] = sums[i] / SREDNIA;
-		sums[i] = 0; // reset sumy po średniej
-	}
-
-	logIndex++;
-}
-
-// Independent SD snapshots. The 30-record buffer above belongs only to LTE.
+// One snapshot per SD row.
 // No queue/catch-up: slow storage must not cause a burst of duplicate snapshots.
 File sdLogFile;
+char sdUploadName[13] = {};
+uint32_t sdUploadSyncedSize = 0;
+bool sdUploadFailed = false;
+bool sdUploadFaultLatched = false;
+bool csvQueueNewFile(const char *name);
+bool csvQueueRename(const char *oldName, const char *newName);
+bool sdSyncLog() {
+	const bool ok = sdLogFile.sync();
+	if (ok) sdUploadSyncedSize = sdLogFile.size();
+	sdUploadFailed = !ok;
+	return ok;
+}
 SdSampleClock sdClock;
 const char sdCsvHeader[] PROGMEM =
 	"Datetime;Control Module Voltage;Engine RPM (SAE);Vehicle Speed (SAE);"
@@ -71,7 +56,7 @@ const char sdCsvHeader[] PROGMEM =
 struct CsvField {
 	uint8_t source, mask, invert;
 };
-// CSV order is independent of the fixed LTE channel order.
+// CSV order is independent of the channel indices.
 const CsvField csvFields[] PROGMEM = {
 	{BATT, 0, 0},
 	{RPM, 0, 0},
@@ -149,12 +134,25 @@ uint8_t sdMonth = 0, sdDay = 0;
 bool sdBackoff = false;
 void sdWriteFailed() {
 	++sdErrors;
+	sdUploadFailed = true;
+	sdUploadFaultLatched = true;
 	sdLogFile.close();
 	sdBackoff = true;
 	sdFailureSince = millis();
 }
 void updateLogToSD() {
 	const uint32_t sampleMs = millis();
+	if (!engineLogGate.allowed(sampleMs)) {
+		if (sdLogFile) {
+			if (!sdSyncLog())
+				sdWriteFailed();
+			else
+				sdLogFile.close();
+		}
+		// The first received running RPM may write immediately, without catch-up.
+		sdLastSample = sampleMs - SD_SAMPLE_MS;
+		return;
+	}
 	if (sdBackoff && (uint32_t)(sampleMs - sdFailureSince) < SD_RETRY_MS)
 		return;
 	if ((uint32_t)(sampleMs - sdLastSample) < SD_SAMPLE_MS)
@@ -164,7 +162,7 @@ void updateLogToSD() {
 	sdClock.update(rtc.now().unixtime(), sampleMs);
 	DateTime timestamp(sdClock.seconds);
 	// Copy values before disk work; the only per-sample buffer is 42 bytes on stack.
-	LogEntry record = {};
+	SdSnapshot record = {};
 	record.day = timestamp.day();
 	record.hour = timestamp.hour();
 	record.minute = timestamp.minute();
@@ -176,7 +174,7 @@ void updateLogToSD() {
 	}
 	if (sdLogFile &&
 	    (sdYear != timestamp.year() || sdMonth != timestamp.month() || sdDay != timestamp.day())) {
-		if (!sdLogFile.sync()) {
+		if (!sdSyncLog()) {
 			sdWriteFailed();
 			return;
 		}
@@ -203,17 +201,24 @@ void updateLogToSD() {
 				++revision;
 				snprintf(backup + 9, 4, "b%02u", revision);
 			}
-			if (SD.exists(backup) || !SD.rename(filename, backup)) {
+			if (SD.exists(backup) || !SD.rename(filename, backup)
+			    || !csvQueueRename(filename, backup)
+			    ) {
 				sdWriteFailed();
 				return;
 			}
 			newFile = true;
 		}
+		if (newFile && !csvQueueNewFile(filename)) { sdWriteFailed(); return; }
+		const bool sameFile = !strcmp(sdUploadName, filename);
+		memcpy(sdUploadName, filename, sizeof(sdUploadName));
+		if (newFile || !sameFile) { sdUploadSyncedSize = 0; sdUploadFailed = false; }
 		sdLogFile = SD.open(filename, FILE_WRITE);
 		if (!sdLogFile) {
 			sdWriteFailed();
 			return;
 		}
+		if (!newFile && !sameFile) sdUploadSyncedSize = sdLogFile.size();
 		sdLastSync = sampleMs;
 		if (newFile) {
 			for (uint16_t i = 0; pgm_read_byte(sdCsvHeader + i); ++i)
@@ -265,7 +270,7 @@ void updateLogToSD() {
 		return;
 	}
 	if ((uint32_t)(sampleMs - sdLastSync) >= SD_SYNC_MS) {
-		if (!sdLogFile.sync()) {
+		if (!sdSyncLog()) {
 			sdWriteFailed();
 			return;
 		}

@@ -103,6 +103,27 @@ struct Channel {
 };
 Channel channels[CHANNEL_COUNT];
 
+struct EngineLogGate {
+	uint32_t zeroSince = 0;
+	bool zeroPending = false, paused = false;
+	void receivedRpm(int16_t rpm, uint32_t now) {
+		if (rpm == 0) {
+			if (!zeroPending)
+				zeroSince = now;
+			zeroPending = true;
+		} else {
+			zeroPending = false;
+			if (rpm > 1)
+				paused = false;
+		}
+	}
+	bool allowed(uint32_t now) {
+		if (zeroPending && (uint32_t)(now - zeroSince) > 10000)
+			paused = true;
+		return !paused;
+	}
+} engineLogGate;
+
 // Presentation state and GPS encoding must never share measurement storage.
 int16_t lastDisplayed[LAT] = {-32768, -32768, -32768, -32768, -32768, -32768, -32768, -32768,
                               -32768, -32768, -32768, -32768, -32768, -32768, -32768};
@@ -526,6 +547,7 @@ void decodeGaugeReply(const uint8_t *pData, uint8_t dataSize) {
 		case 0x0C: { // rpm
 			if (dataSize >= 7) {
 				channels[RPM].set(((uint16_t)pData[5] << 8 | pData[6]) / 4);
+				engineLogGate.receivedRpm(channels[RPM].value, millis());
 #ifdef TXRX
 				DBG(F("RPM: "));
 				DBGL(channels[RPM].value);

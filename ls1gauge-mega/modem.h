@@ -8,17 +8,16 @@
 // One UART owner, fixed buffers, bounded RX/TX work on each loop iteration.
 static const uint8_t MODEM_BUDGET = 24;
 static const char AT_OK[] PROGMEM = "OK";
-static const char LOGGER_URL[] PROGMEM =
-    "AT+HTTPPARA=\"URL\",\"http://ls1.cyra.com.pl/logger.php\"";
 struct AtTransaction {
 	char command[80];
 	char line[112];
 	const char *expected = nullptr; // Flash string.
 	uint32_t since = 0, quietSince = 0;
-	uint16_t timeout = 0;
+	uint32_t timeout = 0;
 	uint8_t pos = 0, length = 0, phase = 0;
 	bool busy = false, done = false, result = false;
 	bool matched = false, ok = false, overflow = false;
+	bool responded = false;
 } at;
 
 bool parseGpsLine(char *line) {
@@ -74,7 +73,9 @@ enum ModemOwner : uint8_t {
 	OWNER_NET_REG,
 	OWNER_GPS,
 	OWNER_HTTP,
-	OWNER_RECOVERY
+	OWNER_RECOVERY,
+	OWNER_POWER,
+	OWNER_TIME
 };
 ModemOwner modemOwner = OWNER_INIT;
 bool blinkState = false, modemOnline = false;
@@ -82,13 +83,33 @@ bool initReady = false, gpsRequested = false;
 uint8_t stepIdx = 0, tries = 0;
 uint32_t netLastCheck = 0, nextNetCheck = 0;
 uint32_t recoveryQuietSince = 0;
+uint8_t recoveryStep = 0;
+uint8_t modemPowerStep = 0;
+uint32_t modemPowerSince = 0, modemPowerNext = 30000UL;
 const uint16_t NET_TIMEOUT = 20000;
 #include "modem_debug.h"
 void modemHttpTick();
 bool modemHttpPending();
 void cancelLogSend();
+bool csvAtByte(uint8_t c);
+bool csvAtLine(const char *line);
+bool csvFastService();
+extern uint32_t csvRetryAfter;
+bool parseModemClock(const char *line, uint32_t &utc);
+bool syncRtcUtc(uint32_t utc);
+uint32_t modemTimeNext = 0, modemTimeUtc = 0;
+uint8_t modemTimeStep = 0;
+bool modemTimeDue() {
+	return modemOnline && (int32_t)(millis() - modemTimeNext) >= 0;
+}
 
-void beginAT(const char *flashCommand, const char *flashExpected = AT_OK, uint16_t timeout = 2000) {
+void modemPowerKey(bool pressed) {
+	// R104 removed: never drive the module's low-voltage PWRKEY with Mega's 5 V.
+	digitalWrite(12, LOW);
+	pinMode(12, pressed ? OUTPUT : INPUT);
+}
+
+void beginAT(const char *flashCommand, const char *flashExpected = AT_OK, uint32_t timeout = 2000) {
 	if (at.busy || at.done)
 		return;
 	if (flashCommand) {
@@ -104,6 +125,7 @@ void beginAT(const char *flashCommand, const char *flashExpected = AT_OK, uint16
 	at.phase = 0;
 	at.busy = true;
 	at.result = at.matched = at.ok = at.overflow = false;
+	at.responded = false;
 	at.since = millis();
 	at.quietSince = at.since;
 	modemDebugRecord('C', 'Q', at.command);
@@ -163,6 +185,8 @@ void pumpAT() {
 	uint8_t budget = MODEM_BUDGET;
 	while (budget-- && Serial1.available()) {
 		char c = (char)Serial1.read();
+		if (modemOwner == OWNER_HTTP && csvAtByte((uint8_t)c))
+			continue;
 		modemDebugRx(c, false);
 		if (c == '\r')
 			continue;
@@ -177,28 +201,47 @@ void pumpAT() {
 		if (at.overflow)
 			modemDebugNumber('O', 'V', at.length);
 		if (!at.overflow && at.length) {
+			if (modemOwner == OWNER_HTTP && csvAtLine(at.line)) {
+				at.length = 0;
+				at.overflow = false;
+				if (at.phase == 3) return;
+				continue;
+			}
 			if (strcmp_P(at.line, PSTR("ERROR")) == 0 ||
 			    strncmp_P(at.line, PSTR("+CME ERROR"), 10) == 0) {
+				at.responded = true;
+				if (modemOwner == OWNER_RECOVERY && recoveryStep == 1 &&
+				    strcmp_P(at.line, PSTR("ERROR")) == 0)
+					at.matched = true; // HTTPTERM also returns ERROR when no session exists.
 				finishAT(false);
 				return;
 			}
-			if (strcmp_P(at.line, PSTR("OK")) == 0)
+			if (strcmp_P(at.line, PSTR("OK")) == 0) {
 				at.ok = true;
+				at.responded = true;
+			}
+			if (modemOwner == OWNER_TIME) {
+				if (modemTimeStep == 1 && strncmp_P(at.line, PSTR("+CNTP:"), 6) == 0 &&
+				    strcmp_P(at.line, PSTR("+CNTP: 0")) != 0) {
+					finishAT(false);
+					return;
+				}
+				if (modemTimeStep == 2 && parseModemClock(at.line, modemTimeUtc))
+					at.matched = true;
+			}
 			if (modemOwner == OWNER_GPS && strncmp_P(at.line, PSTR("+CGPSINFO:"), 10) == 0) {
 				parseGpsLine(at.line); // Empty/no-fix leaves the last position intact.
 				at.matched = true;
 			} else if (strcmp_P(at.line, at.expected) == 0 ||
 			           (strncmp_P(at.line, PSTR("+HTTPACTION:"), 12) == 0 &&
 			            strncmp_P(at.line, at.expected, strlen_P(at.expected)) == 0 &&
-			            at.line[strlen_P(at.expected)] == ',') ||
-			           (strcmp_P(at.expected, PSTR("READY")) == 0 &&
-			            strcmp_P(at.line, PSTR("+CPIN: READY")) == 0)) {
+			            at.line[strlen_P(at.expected)] == ',')) {
 				at.matched = true;
 			}
 			if (modemOwner == OWNER_NET_REG && (strcmp_P(at.line, PSTR("+CREG: 0,1")) == 0 ||
 			                                    strcmp_P(at.line, PSTR("+CREG: 0,5")) == 0))
 				at.matched = true;
-			if (at.matched && (at.ok || strcmp_P(at.expected, PSTR("DOWNLOAD")) == 0)) {
+			if (at.matched && (at.ok || strcmp_P(at.line, PSTR("DOWNLOAD")) == 0)) {
 				finishAT(true);
 				return;
 			}
@@ -220,41 +263,19 @@ struct InitStep {
 };
 // mode: 0 required, 1 successful query skips next command, 2 optional.
 InitStep initStep(uint8_t index) {
+	// SIM7600 initialization before CSV upload.
 	switch (index) {
-	case 0:
-		return {PSTR("AT"), PSTR("OK"), 0};
-	case 1:
-		return {PSTR("AT+CPIN?"), PSTR("READY"), 0};
-	case 2:
-		return {PSTR("AT+CNMP=13"), PSTR("OK"), 0};
-	case 3:
-		return {PSTR("AT+CGDCONT=1,\"IP\",\"internet\""), PSTR("OK"), 0};
-	case 4:
-		return {PSTR("AT+CREG?"), PSTR("+CREG: 0,1"), 0};
-	case 5:
-		return {PSTR("ATE0"), PSTR("OK"), 0};
-	case 6:
-		return {PSTR("AT+NETOPEN?"), PSTR("+NETOPEN: 1"), 1};
-	case 7:
-		return {PSTR("AT+NETOPEN"), PSTR("OK"), 0};
-	case 8:
-		return {PSTR("AT+IPADDR"), PSTR("OK"), 0};
-	case 9:
-		return {PSTR("AT+HTTPTERM"), PSTR("OK"), 2};
-	case 10:
-		return {PSTR("AT+HTTPINIT"), PSTR("OK"), 0};
-	case 11:
-		return {PSTR("AT+HTTPPARA=\"CID\",1"), PSTR("OK"), 0};
-	case 12:
-		return {LOGGER_URL, PSTR("OK"), 0};
-	case 13:
-		return {PSTR("AT+HTTPACTION=0"), PSTR("+HTTPACTION: 0,403"), 0};
-	case 14:
-		return {PSTR("AT+HTTPTERM"), PSTR("OK"), 0};
-	case 15:
-		return {PSTR("AT+CGPS?"), PSTR("+CGPS: 1,1"), 1};
-	default:
-		return {PSTR("AT+CGPS=1"), PSTR("OK"), 0};
+	case 0: return {PSTR("AT"), AT_OK, 0};
+	case 1: return {PSTR("ATE0"), AT_OK, 0};
+	case 2: return {PSTR("AT+CPIN?"), PSTR("+CPIN: READY"), 0};
+	case 3: return {PSTR("AT+CNMP=2"), AT_OK, 0};
+	case 4: return {PSTR("AT+CGDCONT=1,\"IP\",\"internet\""), AT_OK, 0};
+	case 5: return {PSTR("AT+CGATT?"), PSTR("+CGATT: 1"), 0};
+	case 6: return {PSTR("AT+NETOPEN?"), PSTR("+NETOPEN: 1"), 1};
+	case 7: return {PSTR("AT+NETOPEN"), AT_OK, 0};
+	case 8: return {PSTR("AT+HTTPTERM"), AT_OK, 2};
+	case 9: return {PSTR("AT+CGPS?"), PSTR("+CGPS: 1,1"), 1};
+	default: return {PSTR("AT+CGPS=1"), AT_OK, 0};
 	}
 }
 
@@ -279,7 +300,9 @@ void getGPSInfo() {
 // A GPS line exceeds the Mega core's 63-byte usable RX ring. While awaiting it,
 // service RX/VPW before starting another slow TFT/SD/DHT operation or VPW TX.
 bool modemNeedsFastService() {
-	return modemOwner == OWNER_GPS && at.busy && at.phase < 3;
+	return (modemOwner == OWNER_GPS && at.busy && at.phase < 3)
+	    || (modemOwner == OWNER_HTTP && csvFastService())
+	    ;
 }
 void recoverModem() {
 	cancelLogSend();
@@ -287,25 +310,159 @@ void recoverModem() {
 	initReady = modemOnline = false;
 	modemOwner = OWNER_RECOVERY;
 	recoveryQuietSince = millis();
+	recoveryStep = 0;
+	tries = 0;
 	modemDebugNumber('S', 'T', OWNER_RECOVERY);
+}
+
+void startModemPowerCycle() {
+	cancelLogSend();
+	at.busy = at.done = false;
+	initReady = modemOnline = false;
+	modemOwner = OWNER_POWER;
+	modemPowerStep = 0;
+	modemPowerSince = millis();
+	modemPowerNext = modemPowerSince + 120000UL;
+	modemPowerKey(true);
+	modemDebugNumber('P', 'W', 0);
+}
+
+void modemPowerTick() {
+	const uint32_t elapsed = millis() - modemPowerSince;
+	if (modemPowerStep == 2) {
+		pumpAT();
+		if (!at.done)
+			return;
+		const bool ready = at.result;
+		at.done = false;
+		if (ready) {
+			modemInitStart();
+			return;
+		}
+		modemPowerKey(true);
+		modemPowerStep = 3;
+		modemPowerSince = millis();
+		modemDebugNumber('P', 'W', 3);
+		return;
+	}
+	uint8_t budget = MODEM_BUDGET;
+	while (budget-- && Serial1.available()) {
+		const char c = (char)Serial1.read();
+		modemDebugRx(c, true);
+	}
+	if (modemPowerStep == 0 && elapsed >= 3000) {
+		modemPowerKey(false);
+		modemPowerStep = 1;
+		modemPowerSince = millis();
+		modemDebugNumber('P', 'W', 1);
+	} else if (modemPowerStep == 1 && elapsed >= 30000) {
+		// If already off, the long pulse may have started it. Probe before pressing again.
+		modemPowerStep = 2;
+		beginAT(PSTR("AT"));
+	} else if (modemPowerStep == 3 && elapsed >= 500) {
+		modemPowerKey(false);
+		modemPowerStep = 4;
+		modemPowerSince = millis();
+		modemDebugNumber('P', 'W', 4);
+	} else if (modemPowerStep == 4 && elapsed >= 15000) {
+		modemInitStart();
+	}
+}
+
+void modemTimeTick() {
+	if (at.done) {
+		const bool success = at.result;
+		at.done = false;
+		if (!success || modemTimeStep == 2) {
+			if (success) {
+				const bool adjusted = syncRtcUtc(modemTimeUtc);
+				modemDebugNumber('R', adjusted ? 'A' : 'K', modemTimeUtc);
+			} else {
+				modemDebugNumber('R', 'E', modemTimeStep);
+			}
+			modemTimeNext = millis() + (success ? 21600000UL : 300000UL);
+			modemOwner = OWNER_IDLE;
+			return;
+		}
+		++modemTimeStep;
+	}
+	if (at.busy)
+		return;
+	switch (modemTimeStep) {
+	case 0:
+		beginAT(PSTR("AT+CNTP=\"pool.ntp.org\",0"));
+		break;
+	case 1:
+		beginAT(PSTR("AT+CNTP"), PSTR("+CNTP: 0"), 30000UL);
+		break;
+	case 2:
+		modemTimeUtc = 0;
+		beginAT(PSTR("AT+CCLK?"), PSTR("+VALID_CLOCK"));
+		break;
+	}
 }
 
 void modemInitTick() {
 	modemDebugTick();
+	if (modemOwner == OWNER_POWER) {
+		modemPowerTick();
+		return;
+	}
 	if (modemOwner == OWNER_RECOVERY) {
+		if (at.busy || at.done) {
+			pumpAT();
+			if (!at.done)
+				return;
+			const bool success = at.result;
+			const bool noSession = recoveryStep == 1 && at.matched;
+			at.done = false;
+			if (success || noSession) {
+				tries = 0;
+				if (++recoveryStep == 3) {
+					csvRetryAfter = millis();
+					modemInitStart();
+					return;
+				}
+			} else {
+				if (at.responded)
+					tries = 0;
+				else if (++tries >= 3 && (int32_t)(millis() - modemPowerNext) >= 0) {
+					startModemPowerCycle();
+					return;
+				}
+				recoveryStep = 0;
+				recoveryQuietSince = millis();
+				return;
+			}
+		}
 		uint8_t budget = MODEM_BUDGET;
 		while (budget-- && Serial1.available()) {
 			char c = (char)Serial1.read();
 			modemDebugRx(c, true);
 			recoveryQuietSince = millis();
 		}
-		// HTTPDATA advertises a 5000 ms input window. Never send AT command bytes
-		// into a possibly active payload window; late DOWNLOAD restarts this guard.
-		if ((uint32_t)(millis() - recoveryQuietSince) >= 5500)
-			modemInitStart();
+		// A late DOWNLOAD restarts the guard against sending commands as payload.
+		if (Serial1.available() || (uint32_t)(millis() - recoveryQuietSince) < 5500)
+			return;
+		// CPAS proves command readiness; a fresh HTTP context excludes the old request.
+		switch (recoveryStep) {
+		case 0:
+			beginAT(PSTR("AT+CPAS"), PSTR("+CPAS: 0"));
+			break;
+		case 1:
+			beginAT(PSTR("AT+HTTPTERM"), AT_OK, 120000UL);
+			break;
+		case 2:
+			beginAT(PSTR("AT+HTTPINIT"), AT_OK, 120000UL);
+			break;
+		}
 		return;
 	}
 	pumpAT();
+	if (modemOwner == OWNER_TIME) {
+		modemTimeTick();
+		return;
+	}
 	if (modemOwner == OWNER_INIT) {
 		InitStep st = initStep(stepIdx);
 		if (at.done) {
@@ -315,9 +472,18 @@ void modemInitTick() {
 				stepIdx += (success && st.mode == 1) ? 2 : 1;
 				tries = 0;
 			} else if (++tries >= 5) {
+				if (stepIdx == 0 && !at.responded && (int32_t)(millis() - modemPowerNext) >= 0) {
+					startModemPowerCycle();
+					return;
+				}
+				// Network attachment can take minutes; do not restart radio configuration.
+				if (stepIdx == 5 && at.responded) tries = 0;
+				else
 				stepIdx = tries = 0;
 			}
-			if (stepIdx >= 17) {
+			if (stepIdx >=
+			    11
+			) {
 				initReady = modemOnline = true;
 				modemOwner = OWNER_IDLE;
 				modemDebugNumber('S', 'T', OWNER_IDLE);
@@ -339,8 +505,6 @@ void modemInitTick() {
 		at.done = false;
 		if (modemOwner == OWNER_NET_ATTACH && success) {
 			modemOwner = OWNER_NET_REG;
-			beginAT(PSTR("AT+CREG?"), PSTR("+CREG: 0,1"));
-			return;
 		}
 		if (modemOwner != OWNER_GPS) {
 			modemOnline = success && modemOwner == OWNER_NET_REG;
@@ -354,6 +518,12 @@ void modemInitTick() {
 			nextNetCheck = millis() + 4000;
 		}
 		modemOwner = OWNER_IDLE;
+	}
+	if (!modemHttpPending() && modemTimeDue()) {
+		modemOwner = OWNER_TIME;
+		modemTimeStep = 0;
+		modemTimeTick();
+		return;
 	}
 	if (modemHttpPending()) {
 		modemOwner = OWNER_HTTP;

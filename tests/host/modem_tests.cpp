@@ -11,16 +11,15 @@
 void encodeCoord(float deg,int16_t& low,int16_t& high){int32_t v=(int32_t)(deg*1e6f);low=(int16_t)v;high=(int16_t)(v>>16);}
 int freeRam(){return 2700;}
 #include "../../ls1gauge-mega/modem.h"
-struct DateTime {uint16_t year()const{return 2026;}uint8_t month()const{return 10;}};
-struct {DateTime now(){return {};}} rtc;
-#define LOG_ENTRIES 30
-#define TOKEN_LENGTH 12
-char token[13]="ABCDEFGHIJKL";
-struct LogEntry {uint8_t day,hour,minute,second;int16_t data[19];};
-LogEntry logBuffer[30]={};
-uint8_t logIndex=0;
-uint16_t logGeneration=0;
-#include "../../ls1gauge-mega/modem-post.h"
+bool csvAtByte(uint8_t) { return false; }
+bool csvAtLine(const char*) { return false; }
+bool csvFastService() { return false; }
+uint32_t csvRetryAfter=0;
+bool parseModemClock(const char*,uint32_t&) { return false; }
+bool syncRtcUtc(uint32_t) { return false; }
+void modemHttpTick() {}
+bool modemHttpPending() { return false; }
+void cancelLogSend() {}
 static int failures=0;
 #define CHECK(c) do {if(!(c)){printf("FAIL line %d: %s\n",__LINE__,#c);++failures;}}while(0)
 // UART peer: only the hardware boundary is replaced. The real state machines run.
@@ -56,7 +55,26 @@ struct Peer {
     }
 };
 int main(){
+    modemTimeNext=1000000;
 #if DEBUG_MODEM
+    debugBreadcrumb.magic=0;
+    debugBootBegin(0);CHECK(debugPrevious.magic==0);
+    debugStage(21);modemOwner=OWNER_HTTP;at.phase=2;
+    debugWatchdogExpired();debugStage(26);debugBootBegin(0);
+    CHECK(debugPrevious.magic==0x59d1&&debugPrevious.watchdog==1);
+    CHECK(debugPrevious.stage==21&&debugPrevious.owner==OWNER_HTTP&&debugPrevious.phase==2);
+    CHECK(debugBreadcrumb.watchdog==0&&debugBreadcrumb.stage==1);
+    Serial={};Serial.room=0;modemDebugEnabled=true;debugBootReport();
+    CHECK(debugBootPending&&Serial.tx.empty()&&Serial.blockedWrites==0);
+    Serial.room=63;debugBootReport();
+    CHECK(!debugBootPending&&Serial.tx.find("wdt=1 stage=21 owner=5 phase=2")!=std::string::npos);
+    debugStage(18);debugBootBegin(0);
+    CHECK(debugPrevious.watchdog==0&&debugPrevious.stage==18);
+    debugWatchdogExpired();debugBootBegin(1);
+    CHECK(debugPrevious.magic==0&&debugPrevious.watchdog==0);
+    modemDebugEnabled=false;Serial={};debugBootReport();
+    CHECK(Serial.tx.empty());debugBootPending=false;
+    modemOwner=OWNER_INIT;at={};
     EEPROM.reset();modemDebugLoad();CHECK(!modemDebugEnabled);
     Serial={};modemDebugRecord('T','E',"disabled");CHECK(Serial.tx.empty());
     CHECK(!modemDebugCommand("DEBUG ON rubbish"));
@@ -116,25 +134,6 @@ int main(){
     auto saved=channels[LAT].value;
     char nofix[]="+CGPSINFO: ,,,,,,,,";CHECK(!parseGpsLine(nofix));CHECK(channels[LAT].value==saved);
     char malformed[]="+CGPSINFO: 5260.0,N,02100.0,E,1,2,3,4,5";CHECK(!parseGpsLine(malformed));
-    for(int i=0;i<30;++i){logBuffer[i].day=27;logBuffer[i].second=(uint8_t)(i*2);logBuffer[i].data[0]=(int16_t)(100+i);}
-    ++logGeneration;logIndex=0;startSendLog();
-    logBuffer[0].data[0]=999; // Already snapshotted first half must not change.
-    for(int i=0;i<12000&&modemHttpPending();++i){getGPSInfo();peer.step();}
-    CHECK(!modemHttpPending());CHECK(peer.bodies.size()==2);CHECK(logUploadErrors==0);
-    if(peer.bodies.size()==2){
-        CHECK(peer.bodies[0].size()==647);CHECK(peer.bodies[1].size()==647);
-        CHECK(peer.bodies[0].substr(0,12)=="ABCDEFGHIJKL");
-        CHECK((uint8_t)peer.bodies[0][12]==0xea);CHECK((uint8_t)peer.bodies[0][13]==7);
-        CHECK((uint8_t)peer.bodies[0][19]==100);CHECK((uint8_t)peer.bodies[1][19]==115);
-        for(auto& body:peer.bodies){auto crc=crc16_ccitt((const uint8_t*)body.data(),645);CHECK((uint8_t)body[645]==(crc&255));CHECK((uint8_t)body[646]==(crc>>8));}
-    }
-    // An old second half must never be copied after acquisition overwrites it.
-    Serial1={};at={};modemOwner=OWNER_HTTP;logState=PART2;logPart=0;
-    uploadGeneration=logGeneration;logIndex=16;
-    auto errors=logUploadErrors;modemHttpTick();
-    CHECK(logState==DONE);CHECK(logUploadErrors==errors+1);
-    logState=PART2;logIndex=0;++logGeneration;modemHttpTick();
-    CHECK(logState==DONE);CHECK(logUploadErrors==errors+2);
     // No response and full UART must expire, including millis() rollover.
     for(int full=0;full<2;++full){
         Serial1={};Serial1.room=full?0:64;at={};testUs=0;testMillisOffset=0xffffff80u;
@@ -165,15 +164,6 @@ int main(){
     }
     CHECK(delivered==gpsReply.size());CHECK(Serial1.droppedRx==0);
     CHECK(modemOwner!=OWNER_GPS);
-    // A late DOWNLOAD must not be followed by an AT retry in its payload window.
-    Serial1={};at={};modemOwner=OWNER_HTTP;logState=SEND_DATA_CMD;
-    at.done=true;at.result=false;modemHttpTick();
-    CHECK(modemOwner==OWNER_RECOVERY);CHECK(!modemHttpPending());
-    testUs+=100000;Serial1.inject("DOWNLOAD\r\n");modemInitTick();
-    auto quiet=testUs;
-    for(int i=0;i<5400;++i){testUs+=1000;modemInitTick();}
-    CHECK(Serial1.tx.empty());CHECK(modemOwner==OWNER_RECOVERY);
-    testUs=quiet+5500000;modemInitTick();CHECK(modemOwner==OWNER_INIT);
     CHECK(waitedMs==0);
 #if DEBUG_MODEM
     CHECK(Serial.blockedWrites==0);

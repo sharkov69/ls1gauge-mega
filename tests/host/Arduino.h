@@ -30,13 +30,14 @@ inline uint32_t testUs = 0;
 inline uint32_t testStepUs = 0;
 inline uint32_t testMillisOffset = 0;
 inline int pins[256] = {};
+inline int pinModes[256] = {};
 inline bool irqEnabled = true;
 inline uint32_t waitedMs = 0;
 inline uint32_t micros() { testUs += testStepUs; return testUs; }
 inline uint32_t millis() { testUs += testStepUs; return testMillisOffset + testUs / 1000; }
 inline void delay(unsigned long ms) { waitedMs += ms; testUs += ms * 1000; }
 inline void delayMicroseconds(unsigned int us) { testUs += us; }
-inline void pinMode(uint8_t, uint8_t) {}
+inline void pinMode(uint8_t pin, uint8_t mode) { pinModes[pin] = mode; }
 inline int digitalRead(uint8_t pin) { return pins[pin]; }
 inline void digitalWrite(uint8_t pin, uint8_t val) { pins[pin] = val; }
 inline int digitalPinToInterrupt(uint8_t pin) { return pin; }

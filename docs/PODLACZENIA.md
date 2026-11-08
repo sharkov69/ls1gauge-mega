@@ -34,7 +34,7 @@ Kod nie określa modelu modułu VPW ani modemu, napięć ich zasilania, układu 
 | Przycisk 3 | D31 | Przycisk między pinem a GND | `.ino` |
 | Modem RX | D18 / TX1 | Mega TX1 → RX modemu | `Serial1`, `.ino` |
 | Modem TX | D19 / RX1 | TX modemu → Mega RX1 | `Serial1`, `.ino` |
-| Wyjście o niepotwierdzonej funkcji | D12 | Program ustawia `OUTPUT` i `LOW`; sekwencja resetu modemu jest zakomentowana | `.ino`, `modem.h` |
+| PWRKEY modemu | D12 | BK-SIM7600, R104 usunięty; OUTPUT LOW naciska, INPUT bez podciągania zwalnia | `.ino`, `modem.h` |
 | USB / terminal | `Serial` | 115200 bit/s; ustawianie czasu i opcjonalne komunikaty | `.ino` |
 | Źródło ziarna losowania | A0 | `analogRead(A0)` dla `randomSeed()` | `.ino` |
 
@@ -58,6 +58,6 @@ DHT22 używa D48. Sprawdź, czy jego moduł zawiera rezystor podciągający DATA
 
 Na stronie logicznej interfejsu VPW biblioteka oczekuje stanu spoczynkowego HIGH. Nadaje początek ramki przez ustawienie TX na LOW i obserwuje RX podczas arbitrażu. To opis zachowania GPIO; schemat zewnętrznego układu musi określić jego przełożenie na napięcia magistrali.
 
-Modem łączy się z Mega przez UART `Serial1`, 115200 bit/s. Skrzyżuj TX/RX i zapewnij zgodne poziomy logiczne. Kod używa m.in. `AT+NETOPEN`, `AT+HTTPINIT` i `AT+CGPSINFO`; model i firmware modemu muszą obsługiwać tę sekwencję. Nie przypisuj D12 do PWRKEY lub RESET bez sprawdzenia schematu.
+Modem SIM7600E-L1C łączy się z Mega przez UART `Serial1`, 115200 bit/s. Skrzyżuj TX/RX i zapewnij zgodne poziomy logiczne. D12 prowadzi do PWRKEY płytki BK-SIM7600, a rezystor R104 zwierający PWRKEY do masy został usunięty. Nie podawaj stanu HIGH 5 V ani INPUT_PULLUP na ten pin. Automatyczne wznawianie używa LOW i zwolnienia pinu; czasy oraz ograniczenia opisuje [CSV_UPLOAD.md](CSV_UPLOAD.md).
 
 Zapewnij wspólną masę po stronie logiki, zasilanie dostosowane do poboru prądu modemu oraz ochronę zasilania samochodowego. Repozytorium nie daje podstaw do wskazania konkretnej przetwornicy, bezpiecznika ani wartości elementów interfejsu VPW.

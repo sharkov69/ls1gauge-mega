@@ -78,6 +78,8 @@ void drawFirstExtra(bool force = false) {
 	}
 }
 void drawClimateIndicators(bool force) {
+	if (menuActive || !guiStarted)
+		return;
 	static uint8_t previous = 255;
 	const uint32_t nowMs = millis();
 	const uint16_t age = dpid.directPolling() ? 3000 : 500;
@@ -295,10 +297,9 @@ void drawClockGUI() {
 	lastMonth = -1;
 	lastYear = -1;
 	lastWeekday = -1;
-	lastDisplayed[TEMP_AC] = -999;
-	lastDisplayed[HUM] = -999;
-	lastDisplayed[TEMP_OUT] = -999;
-	lastDisplayed[TEMP_IN] = -999;
+	// Invalidate even when the real measurement happens to equal a sentinel.
+	for (uint8_t id = TEMP_AC; id <= TEMP_IN; ++id)
+		lastDisplayed[id] = channels[id].value ^ 1;
 	if (clockMode)
 		drawClimateIndicators(true);
 	wdt_reset();

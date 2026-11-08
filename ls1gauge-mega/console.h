@@ -28,6 +28,49 @@ void handleConsole() {
 			continue;
 		}
 		line[length] = 0;
+#ifdef __AVR__
+		if (!overflow && strcmp_P(line, PSTR("UART1")) == 0) {
+			char report[56];
+			int n = snprintf_P(report, sizeof(report), PSTR("uart1 a=%u b=%u c=%u baud=%u pin=%u ddr=%u\n"),
+			    UCSR1A, UCSR1B, UCSR1C, UBRR1, PIND, DDRD);
+			if (n > 0 && n < (int)sizeof(report) && Serial.availableForWrite() >= n)
+				Serial.write((const uint8_t *)report, n);
+		}
+#endif
+		if (!overflow && strcmp_P(line, PSTR("TLS PASS")) == 0) {
+			const bool success = csvSaveTlsQualification();
+			if (success) csvLoadProvisioning();
+			if (Serial.availableForWrite() >= 10) Serial.print(success ? F("TLS OK\n") : F("TLS ERROR\n"));
+		}
+		if (!overflow && strcmp_P(line, PSTR("CSV")) == 0) {
+			char report[64];
+			int n = snprintf_P(report, sizeof(report), PSTR("cfg=%u tls=%u state=%u err=%u off=%lu\n"),
+			    csvProvisioned, csvTlsQualified, (unsigned)csvHttpState, logUploadErrors, csvUploader.offset());
+			if (n > 0 && n < (int)sizeof(report) && Serial.availableForWrite() >= n)
+				Serial.write((const uint8_t *)report, n);
+		}
+		if (!overflow && strncmp_P(line, PSTR("CFG "), 4) == 0) {
+			bool success = false;
+			if (strcmp_P(line, PSTR("CFG COMMIT")) == 0) {
+				success = csvConfigCommit();
+				if (success) csvLoadProvisioning();
+			} else if (length == 23 && line[6] == ' ' && line[4] >= '0' && line[4] <= '3' &&
+			           line[5] >= '0' && line[5] <= '9') {
+				uint8_t bytes[8] = {};
+				bool valid = true;
+				for (uint8_t i = 0; i < 16; ++i) {
+					char c = line[7 + i];
+					int8_t digit = c >= '0' && c <= '9' ? c - '0' :
+					               c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+					if (digit < 0) valid = false;
+					else bytes[i / 2] |= (uint8_t)digit << (i % 2 ? 0 : 4);
+				}
+				if (valid) success = csvConfigChunk((line[4] - '0') * 10 + line[5] - '0', bytes);
+				memset(bytes, 0, sizeof(bytes));
+			}
+			memset(line, 0, sizeof(line));
+			if (Serial.availableForWrite() >= 10) Serial.print(success ? F("CFG OK\n") : F("CFG ERROR\n"));
+		}
 		if (!overflow)
 			modemDebugCommand(line);
 		if (!overflow && length == 2 && strcmp_P(line, PSTR("SD")) == 0) {

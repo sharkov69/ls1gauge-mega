@@ -31,7 +31,7 @@ W przypadku SdFat włącz szczegółowy wynik kompilacji i sprawdź, z którego 
 3. Zainstaluj biblioteki z tabeli i lokalną bibliotekę VPW.
 4. Porównaj sprzęt z [tabelą połączeń](PODLACZENIA.md). Ustaw adresy DS18B20 w `temp.h`, APN w `modem.h` i adres serwera `LOGGER_URL` w `modem.h`.
 5. Uruchom weryfikację szkicu w IDE. Zapisz wynik kompilacji wraz z wersją pakietu AVR i wybranymi ścieżkami bibliotek, jeśli chcesz odtworzyć środowisko na innym komputerze.
-6. Wgraj szkic. Ustaw czas RTC przez terminal i sprawdź ustawienia demo, widoku oraz pauzy VPW.
+6. Wgraj szkic. Ustaw czas RTC przez terminal i sprawdź ustawienia demo oraz widoku.
 7. Sprawdź zegar, odczyty czujników i ekrany. Następnie sprawdź komunikację z pojazdem przez właściwy interfejs VPW, zapis pliku CSV i odpowiedź serwera.
 
 Etap 1 przeszedł kompilację AVR i testy hosta. Nie wgrywano go na urządzenie. Procedurę próby i wyniki pamięci zawiera [ETAP1.md](ETAP1.md).
@@ -48,8 +48,8 @@ Domyślny odczyt używa dwóch pakietów P59. Ustawienie VPW_DPID_ENABLED oraz k
 | Interwał czujników | `temp.h`, `SENSORS_INTERVAL` | 2500 ms; komentarz o 5 s jest nieaktualny |
 | APN | `modem.h`, `initStep()` | `internet` |
 | Wybór trybu sieci modemu | `modem.h`, `initStep()` | `AT+CNMP=13`; znaczenie sprawdź dla własnego modemu |
-| Endpoint logów | `modem.h`, `LOGGER_URL` | `http://ls1.cyra.com.pl/logger.php` |
-| Odstęp zapytań VPW | EEPROM / menu | 25–125 ms; 75 ms po wykryciu wartości spoza zakresu |
+| Endpoint logów | `modem-csv.h` | `https://camaro.it-tiger.pl/v1/chunks` |
+| Odstęp zapytań VPW | EEPROM | 25–125 ms; 75 ms po wykryciu wartości spoza zakresu |
 | Logo | Początek `.ino` | `LOGO` włączone |
 | Diagnostyka | Początek `.ino` | `DEBUG`, `TXRX`, `DEBUGVPW` wyłączone |
 
@@ -61,7 +61,7 @@ Otwórz monitor portu szeregowego z prędkością **115200 bit/s** i wyślij lin
 SETTIME=2026-10-27 12:00:00
 ```
 
-Zastąp datę i godzinę czasem lokalnym, który chcesz wyświetlać. Parser wymaga układu `SETTIME=YYYY-MM-DD HH:MM:SS`; sprawdza zakresy oraz poprawność daty przez RTClib. Program zapisuje również flagę czasu letniego. Korektę lato/zima wykonuje przy starcie według daty, bez uwzględnienia godziny przejścia. Synchronizacja zegara z GPS oraz funkcja pobierania czasu z HTTP są zakomentowane.
+Zastąp datę i godzinę czasem lokalnym, który chcesz wyświetlać. Parser wymaga układu `SETTIME=YYYY-MM-DD HH:MM:SS`; sprawdza zakresy oraz poprawność daty przez RTClib. Po połączeniu LTE program pobiera czas z NTP i koryguje RTC wyłącznie przy różnicy większej niż 30 s. Używa czasu Europe/Warsaw, wraz z godziną przejścia lato/zima. Udany odczyt ponawia co 6 godzin, nieudany co 5 minut. Szczegóły i ograniczenia sterowania D12 opisuje [CSV_UPLOAD.md](CSV_UPLOAD.md).
 
 ### Karta SD i obrazy
 
@@ -71,21 +71,20 @@ Opcja `Show pictures` wyszukuje do 12 plików `.bmp` w katalogu głównym. Przyg
 
 ## Przyciski i menu
 
-| Przycisk | Poza menu | W menu | W regulacji `VPW pause` |
-| --- | --- | --- | --- |
-| 1 / D27 | Usypia lub budzi oba ekrany | Poprzednia pozycja | +10 ms |
-| 2 / D29 | Otwiera menu i budzi ekrany | Wykonuje wybraną opcję | Powrót do menu |
-| 3 / D31 | Przełącza demo i zapisuje wybór | Następna pozycja | −10 ms |
+| Przycisk | Poza menu | W menu |
+| --- | --- | --- |
+| 1 / D27 | Usypia lub budzi oba ekrany | Poprzednia pozycja |
+| 2 / D29 | Otwiera menu i budzi ekrany | Wykonuje wybraną opcję |
+| 3 / D31 | Brak działania | Następna pozycja |
 
-Menu wyświetla się na TFT 2. Program stosuje 300 ms odstępu między reakcjami i zamyka menu po 5 s bezczynności.
+Menu wyświetla się na TFT 2. Program reaguje na nowe naciśnięcie, z odstępem 300 ms; przytrzymanie nie powtarza wyboru. Menu zamyka się po 5 s bezczynności. Zegar, temperatury i ikony A/C oraz FAN wracają po zamknięciu menu.
 
 | Pozycja | Działanie |
 | --- | --- |
-| `Show pictures` | Kolejny obraz z SD; powrót do wskaźników po około 5 s |
+| `Show pictures` | Zamyka menu, ładuje kolejny obraz z SD i zachowuje logo TFT 2; oba ekrany wracają do wskazań 5 s po załadowaniu BMP |
 | `Gauge View` | Zmiana układu pierwszego ekranu |
 | `Clock View` | Zmiana układu zegara |
-| Tekst aktualnego tokenu | Wygenerowanie i zapis nowego tokenu |
-| `VPW pause` | Regulacja minimalnego odstępu zapytań |
+| `Demo: ON/OFF` | Przełącza demo i zapisuje stan w EEPROM; wartości zmieniają się co 500 ms |
 | `Restart` | Wywołanie funkcji pod adresem 0; nie odcina zasilania modułów |
 
 **Demo nie jest trybem izolowanym.** Program dalej wysyła zapytania VPW, a wygenerowane wartości mogą trafić do SD i na serwer. Przed rejestracją rzeczywistej jazdy sprawdź ustawienie demo. Uśpienie ekranów także nie zatrzymuje rejestracji.
@@ -101,6 +100,6 @@ Włącz `DEBUG`, aby zobaczyć komunikaty na `Serial`. `TXRX` dodatkowo włącza
 | Brak danych VPW | Interfejs elektryczny, RX D3/TX D5, zgodność PID ze sterownikiem i ustawienie demo |
 | Błędne temperatury DS18B20 | D47, adresy ROM, połączenie OneWire i podciąganie |
 | Brak CSV | CS D53, wspólne SPI, kartę, licznik błędów komendy SD i ewentualny konflikt kopii .bak; pierwszy zapis następuje w pętli głównej po starcie |
-| Modem powtarza inicjalizację | Zasilanie, UART, SIM, APN, obsługę komend AT; test startowy oczekuje HTTP 403 |
+| Modem powtarza inicjalizację | Zasilanie, UART, SIM, APN i PWRKEY na D12; przy braku odpowiedzi działa automatyczne wznawianie. Aktualny tryb CSV nie wymaga HTTP 403 ze starego endpointu |
 | Brak wysyłki mimo danych na SD | Zakończenie inicjalizacji modemu, endpoint i odpowiedź HTTP 200 na POST |
 | Błędna skala oleju w CSV | Rozbieżność dzielnika opisana w [formacie danych](DZIALANIE.md) |

@@ -15,6 +15,8 @@ struct DateTime {
 struct {DateTime now(){return DateTime(1793102400u+(rtcDay-27)*86400u+millis()/1000);}} rtc;
 
 #include "../../ls1gauge-mega/sd.h"
+bool csvQueueNewFile(const char*) { return true; }
+bool csvQueueRename(const char*,const char*) { return true; }
 #define GC9A01A_BLACK 0
 struct {
   unsigned pixels=0, windows=0;
@@ -32,10 +34,6 @@ int main(){
   gpsHigh[0] = gpsHigh[1] = 0;
   // File metadata must use the hardware RTC, not the library's default date.
   FsDateTime::setCallback(sdDateTime);
-  // LTE keeps the exact record size and now takes one 1 Hz snapshot per record.
-  CHECK(sizeof(LogEntry)==42);CHECK(SREDNIA==1);
-  sums[8]=2347;addLogEntry();CHECK(logIndex==1&&logBuffer[0].data[8]==2347);
-  LogEntry saved=logBuffer[0];auto generation=logGeneration;
   channels[8].value=2347;
   channels[INJ1].setRaw(19,0);channels[INJ2].setRaw(65535,0);channels[SA].setRaw(108,0);
   channels[PRNDL].setRaw(8,0);channels[TCC].setRaw(128,0);channels[SHIFT_MODE].setRaw(7,0);
@@ -59,8 +57,6 @@ int main(){
   testUs=1200000;updateLogToSD();CHECK(file->syncs==1);
   testUs=3200000;updateLogToSD();CHECK(sdRows==7); // One row, not ten copies after a delay.
   CHECK(file->text.substr(file->text.rfind('\n', file->text.size()-2)+1).find(";8;1;7;0,290;1000,000;1;1;1;0;0;1;1;8,00;1;1;1;1;0")!=std::string::npos); // Last received values survive the old 3 s timeout.
-  CHECK(memcmp(&saved,&logBuffer[0],sizeof(saved))==0);
-  CHECK(logIndex==1&&logGeneration==generation); // SD cannot consume/reset the LTE buffer.
   file->error=true;testUs=3400000;updateLogToSD();CHECK(sdErrors==1);
   auto failedSize=file->text.size();testUs=3600000;updateLogToSD();CHECK(file->text.size()==failedSize);
   file->error=false;testUs=8400000;updateLogToSD();CHECK(sdRows==8);
@@ -138,5 +134,35 @@ int main(){
   CHECK(retained.substr(23)==later.substr(23));
   channels[RPM].set(0); testUs=10200000; updateLogToSD();
   CHECK(missing->text.substr(missing->text.rfind('\n',missing->text.size()-2)+1).find(";0,0;0;")!=std::string::npos);
+  // Exercise real PID decoding: continuous zero stops both logs, not ECU reads.
+  auto rpmReply=[](uint16_t rpm,uint32_t ms){
+    testUs=0;testMillisOffset=ms;
+    uint16_t raw=rpm*4;
+    uint8_t reply[]={0x6c,0xf1,0x10,0x41,0x0c,(uint8_t)(raw>>8),(uint8_t)raw,0};
+    decodeGaugeReply(reply,sizeof(reply));
+  };
+  rpmReply(800,20000);updateLogToSD();
+  rpmReply(0,21000);updateLogToSD();
+  rpmReply(0,30000);updateLogToSD(); // Repeated zeros must not restart the timer.
+  testMillisOffset=31000;auto rows=sdRows;updateLogToSD();CHECK(sdRows==rows+1);
+  auto beforePause=missing->text.size();auto syncs=missing->syncs;
+  testMillisOffset=31001;updateLogToSD();
+  CHECK(missing->text.size()==beforePause);CHECK(!sdLogFile);CHECK(missing->syncs==syncs+1);
+  testMillisOffset=200000;updateLogToSD();CHECK(missing->text.size()==beforePause);
+  rpmReply(1,200001);updateLogToSD();CHECK(missing->text.size()==beforePause);
+  rpmReply(2,200002);updateLogToSD();CHECK(sdRows==rows+2);CHECK(sdLogFile);
+  CHECK(missing->text.find("Datetime;")==missing->text.rfind("Datetime;")); // One header.
+  // A short stop and a nonzero reading reset the continuous-zero timer.
+  rpmReply(0,210000);updateLogToSD();rpmReply(1,215000);updateLogToSD();
+  rpmReply(0,215001);updateLogToSD();testMillisOffset=220002;
+  rows=sdRows;updateLogToSD();CHECK(sdRows==rows+1);
+  rpmReply(800,220003);updateLogToSD();
+  // Unsigned elapsed time must also work across millis() rollover.
+  rpmReply(0,0xfffffff0u);updateLogToSD();
+  testMillisOffset=9984;updateLogToSD();CHECK(sdLogFile);
+  testMillisOffset=9985;updateLogToSD();CHECK(!sdLogFile);
+  // DPID uses the same RPM decoder and must resume on the first packet.
+  uint8_t packet[]={0,8,0,0,0,0};decodeDpidPacket(0,packet);
+  rows=sdRows;updateLogToSD();CHECK(sdRows==rows+1);
   printf("Storage failures: %d\n",failures);return failures?1:0;
 }

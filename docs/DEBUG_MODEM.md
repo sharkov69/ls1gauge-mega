@@ -64,6 +64,8 @@ Pierwsza liczba to `millis()` w chwili przetwarzania zdarzenia, nie czas nadejś
 | --- | --- |
 | BO | Surowa wartość MCUSR odczytana na początku setup, dziesiętnie. Bity AVR: 1 zasilanie, 2 reset zewnętrzny, 4 brown-out, 8 watchdog. Bootloader może je wcześniej skasować lub zmienić; zero nie wyklucza restartu. |
 | ST | Start/restart inicjalizacji (0), gotowość (1) lub odzyskiwanie po błędzie (6) |
+| PW | Etap PWRKEY: 0 impuls wyłączenia, 1 zwolnienie i oczekiwanie, 3 impuls włączenia, 4 oczekiwanie na start |
+| RA / RK / RE | RTC przestawiony / czas w tolerancji 30 s / błąd synchronizacji; RA i RK podają epoch UTC |
 | CQ | Komenda przekazana do automatu, jeszcze nie dowód wysłania |
 | TX | Liczba bajtów komendy wraz z CR/LF przyjętych do UART modemu |
 | RX / R+ | Linia odpowiedzi / kolejny fragment długości 24 znaków |
@@ -74,25 +76,22 @@ Pierwsza liczba to `millis()` w chwili przetwarzania zdarzenia, nie czas nadejś
 | BS / BE | Początek / zakończenie przekazywania binarnego POST do UART, liczba bajtów; bez treści |
 | HB | Co 5 s: wolny RAM / pominięte wpisy / skrócone wpisy. Pomiar RAM dotyczy tej chwili, nie maksymalnego użycia stosu. |
 
-`M`: 0 inicjalizacja, 1 bezczynność, 2 kontrola CGATT, 3 kontrola CREG, 4 GPS, 5 HTTP, 6 odzyskiwanie. Znak `~` oznacza skrócenie szczegółu do 24 znaków. Długie RX dzielimy na fragmenty; brak miejsca w USB może usunąć dowolny z nich. `HB` może też zostać pominięty. Liczniki pominięć i skróceń zatrzymują się na 65535.
+`M`: 0 inicjalizacja, 1 bezczynność, 2 kontrola CGATT, 3 kontrola CREG, 4 GPS, 5 HTTP, 6 odzyskiwanie, 7 PWRKEY, 8 synchronizacja czasu. Znak `~` oznacza skrócenie szczegółu do 24 znaków. Długie RX dzielimy na fragmenty; brak miejsca w USB może usunąć dowolny z nich. `HB` może też zostać pominięty. Liczniki pominięć i skróceń zatrzymują się na 65535.
 
-Etapy inicjalizacji:
+Etapy inicjalizacji bieżącego trybu CSV:
 
 | S | Komenda |
 | ---: | --- |
 | 0 | AT |
-| 1 | AT+CPIN? |
-| 2 | AT+CNMP=13 |
-| 3 | AT+CGDCONT (APN internet) |
-| 4 | AT+CREG? |
-| 5 | ATE0 |
+| 1 | ATE0 |
+| 2 | AT+CPIN? |
+| 3 | AT+CNMP=2 (automatyczny wybór sieci) |
+| 4 | AT+CGDCONT (APN internet) |
+| 5 | AT+CGATT? |
 | 6 / 7 | AT+NETOPEN? / AT+NETOPEN |
-| 8 | AT+IPADDR |
-| 9 / 10 | AT+HTTPTERM / AT+HTTPINIT |
-| 11 / 12 | HTTP CID / URL |
-| 13 | AT+HTTPACTION=0, oczekiwana odpowiedź HTTP 403 |
-| 14 | AT+HTTPTERM |
-| 15 / 16 | AT+CGPS? / AT+CGPS=1 |
+| 8 | AT+HTTPTERM (opcjonalne sprzątanie) |
+| 9 / 10 | AT+CGPS? / AT+CGPS=1 |
+| 11 | Inicjalizacja zakończona |
 
 ## Ograniczenia i weryfikacja
 
@@ -100,6 +99,4 @@ Każdy wpis mieści się w 63 bajtach. Przed zapisem program sprawdza miejsce na
 
 Nie wypisujemy zawartości POST. Na czas nadawania jego treści i oczekiwania na potwierdzenie wyciszamy także RX, aby nie ujawnić ewentualnego echa tokenu. Po błędzie wyciszenie trwa do ponownej inicjalizacji. Pozostałe odpowiedzi mogą zawierać adres IP i pozycję GPS. Arduino HardwareSerial nie udostępnia tu licznika przepełnień RX; licznik HB dotyczy utraconych wpisów diagnostycznych, nie danych modemu.
 
-Kompilacja Mega / AVR Boards 1.8.8: Flash **86 858 B**, statyczny SRAM **5463 B**, pozostało **2729 B** na stos/stertę. Runtime ON i OFF mają ten sam rozmiar buforów; OFF pomija formatowanie i wysyłanie logu. Obsługa ustawienia dodaje 5 B SRAM względem wcześniejszej diagnostyki włączonej kompilacyjnie. To pomiar statyczny, nie maksymalny zapas stosu.
-
-Sześć programów testowych hosta przechodzi, w tym pełny USB, inicjalizacja, GPS, oba POST/CRC, timeouty oraz zapis/powtórzenia/odczyt EEPROM i przywrócenie flagi. Test skryptu pod Windows PowerShell 5.1 używa atrapy portu: potwierdzenia dzielone na fragmenty, timeout, błąd EEPROM, menu oraz brak OFF po zapisie/wyjściu. Nie wykonano próby na fizycznym modemie ani rzeczywistym porcie COM.
+Bieżąca kompilacja Mega: 4800 B statycznego SRAM. Diagnostyka działa również przy pełnym buforze USB, pomijając wpisy zamiast czekać. Testy hosta obejmują EEPROM, reset watchdogiem, parser, PWRKEY, NTP i transfer CSV. Próba sprzętowa potwierdziła wznowienie PWRKEY i NTP; heartbeat podczas próby raportował 3180 B wolnego RAM. Pomiar ten nie jest gwarancją maksymalnego zużycia stosu.

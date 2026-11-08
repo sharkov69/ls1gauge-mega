@@ -54,15 +54,6 @@ uint16_t read16(File &f) {
 	return result;
 }
 
-/*uint32_t read32(File &f) {
-  uint32_t result;
-  result  = f.read();
-  result |= (f.read() << 8);
-  result |= (f.read() << 16);
-  result |= (f.read() << 24);
-  return result;
-}*/
-
 uint32_t read32(File &f) {
 	uint32_t result = (uint8_t)f.read();
 	result |= (uint32_t)(uint8_t)f.read() << 8;

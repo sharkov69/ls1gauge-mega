@@ -1,7 +1,8 @@
 param(
     [string]$Port,
     [ValidateRange(1,3600)][int]$Seconds = 180,
-    [string]$OutputFile
+    [string]$OutputFile,
+    [switch]$CaptureOnly
 )
 $ErrorActionPreference = 'Stop'
 
@@ -34,8 +35,10 @@ function Send-DebugCommand {
     return $false
 }
 function Start-ModemCapture {
-    if (-not (Send-DebugCommand 'DEBUG STATUS' 'ON|OFF')) { throw 'Brak odpowiedzi DEBUG STATUS. Sprawdz firmware i port.' }
-    if ($lastDebugState -ne 'ON') { Write-Host 'Debug jest OFF. Najpierw wybierz 1. Nie zmieniam flagi.'; return }
+    if (-not $CaptureOnly) {
+        if (-not (Send-DebugCommand 'DEBUG STATUS' 'ON|OFF')) { throw 'Brak odpowiedzi DEBUG STATUS. Sprawdz firmware i port.' }
+        if ($lastDebugState -ne 'ON') { Write-Host 'Debug jest OFF. Najpierw wybierz 1. Nie zmieniam flagi.'; return }
+    }
     $capturePath = $OutputFile
     if (-not $capturePath) { $capturePath = Join-Path (Get-Location) ('modem-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '.log') }
     $capturePath = [IO.Path]::GetFullPath($capturePath)
@@ -100,6 +103,10 @@ $writer = $null; $showText = $true; $lastDebugState = ''
 try {
     $serial.Open()
     Write-Host 'Port otwarty. Otwarcie USB moze zresetowac Mega, ale nie zmienia flagi EEPROM.'
+    if ($CaptureOnly) {
+        Start-ModemCapture
+        return
+    }
     do {
         Write-Host "`n1. Wlacz debug i zapisz flage w EEPROM"
         Write-Host '2. Rozpocznij zapis logu do pliku (Q konczy)'
