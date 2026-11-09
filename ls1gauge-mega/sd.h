@@ -52,7 +52,7 @@ const char sdCsvHeader[] PROGMEM =
 	"TCC Applied;Trans Shift Mode;Injector Pulse Width Avg. Bank 1;"
 	"Injector Pulse Width Avg. Bank 2;AC Requested;AC Active;AC Clutch Engaged;"
 	"AC Disable (Pressure);AC Disable (WOT);Fan 1;Fan 2;Knock Retard;Closed Loop Active;"
-	"Reverse Inhibited;Fuel Trim Learn;O2 B1S1 Ready;O2 B2S1 Ready";
+	"Fuel Trim Learn;O2 B1S1 Ready;O2 B2S1 Ready";
 struct CsvField {
 	uint8_t source, mask, invert;
 };
@@ -90,7 +90,6 @@ const CsvField csvFields[] PROGMEM = {
 	{FAN_STATE, 2, 0},
 	{KR, 0, 0},
 	{CL_STATE, 1, 0},
-	{TCC, 16, 1},
 	{CL_STATE, 32, 0},
 	{CL_STATE, 2, 0},
 	{CL_STATE, 8, 0},

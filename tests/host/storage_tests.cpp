@@ -54,12 +54,12 @@ int main(){
   auto file=disk["l-261027.csv"];CHECK(file!=nullptr);
   if(!file)return 1;
   CHECK(file->date==FS_DATE(2026,10,27));CHECK(file->time==FS_TIME(12,0,0));
-  CHECK(file->text.substr(0, file->text.find('\n')) == "Datetime;Control Module Voltage;Engine RPM (SAE);Vehicle Speed (SAE);Throttle Position (SAE);Intake Air Temp (SAE);Engine Coolant Temp (SAE);Trans Fluid Temp;Intake Manifold Absolute Pressure (SAE);Engine Oil Pressure;Timing Advance (SAE);AFR 1;AFR 2;Vent Temp;Vent Humidity(%);Outside Temp;Inside Temp;Latitude;Longitude;PRNDL Status;TCC Applied;Trans Shift Mode;Injector Pulse Width Avg. Bank 1;Injector Pulse Width Avg. Bank 2;AC Requested;AC Active;AC Clutch Engaged;AC Disable (Pressure);AC Disable (WOT);Fan 1;Fan 2;Knock Retard;Closed Loop Active;Reverse Inhibited;Fuel Trim Learn;O2 B1S1 Ready;O2 B2S1 Ready");
+  CHECK(file->text.substr(0, file->text.find('\n')) == "Datetime;Control Module Voltage;Engine RPM (SAE);Vehicle Speed (SAE);Throttle Position (SAE);Intake Air Temp (SAE);Engine Coolant Temp (SAE);Trans Fluid Temp;Intake Manifold Absolute Pressure (SAE);Engine Oil Pressure;Timing Advance (SAE);AFR 1;AFR 2;Vent Temp;Vent Humidity(%);Outside Temp;Inside Temp;Latitude;Longitude;PRNDL Status;TCC Applied;Trans Shift Mode;Injector Pulse Width Avg. Bank 1;Injector Pulse Width Avg. Bank 2;AC Requested;AC Active;AC Clutch Engaged;AC Disable (Pressure);AC Disable (WOT);Fan 1;Fan 2;Knock Retard;Closed Loop Active;Fuel Trim Learn;O2 B1S1 Ready;O2 B2S1 Ready");
   CHECK(file->text.find("Uptime_ms")==std::string::npos);
   CHECK(file->text.find(";PRNDL Status;TCC Applied;Trans Shift Mode;")!=std::string::npos);
   CHECK(file->text.find(";Fan 1;Fan 2;Knock Retard;")!=std::string::npos);
   CHECK(file->text.find("2026-10-27 12:00:00,000;")!=std::string::npos);
-  CHECK(file->text.find(";8;1;7;0,290;1000,000;1;1;1;0;0;1;1;8,00;1;1;1;1;0")!=std::string::npos);
+  CHECK(file->text.find(";8;1;7;0,290;1000,000;1;1;1;0;0;1;1;8,00;1;1;1;0")!=std::string::npos);
   CHECK(std::count(file->text.begin(),file->text.end(),'\n')==2);
   testUs=399000;updateLogToSD();CHECK(sdRows==1);
   for(int i=2;i<=5;++i){testUs=i*200000;updateLogToSD();}
@@ -67,7 +67,7 @@ int main(){
   CHECK(file->text.find("2026-10-27 12:00:00,800;")!=std::string::npos);
   testUs=1200000;updateLogToSD();CHECK(file->syncs==1);
   testUs=3200000;updateLogToSD();CHECK(sdRows==7); // One row, not ten copies after a delay.
-  CHECK(file->text.substr(file->text.rfind('\n', file->text.size()-2)+1).find(";8;1;7;0,290;1000,000;1;1;1;0;0;1;1;8,00;1;1;1;1;0")!=std::string::npos); // Last received values survive the old 3 s timeout.
+  CHECK(file->text.substr(file->text.rfind('\n', file->text.size()-2)+1).find(";8;1;7;0,290;1000,000;1;1;1;0;0;1;1;8,00;1;1;1;0")!=std::string::npos); // Last received values survive the old 3 s timeout.
   file->error=true;testUs=3400000;updateLogToSD();CHECK(sdErrors==1);
   auto failedSize=file->text.size();testUs=3600000;updateLogToSD();CHECK(file->text.size()==failedSize);
   file->error=false;testUs=8400000;updateLogToSD();CHECK(sdRows==8);
@@ -101,8 +101,8 @@ int main(){
   CHECK(excel->text.find(";-12,5;")!=std::string::npos);
   CHECK(excel->text.find(";52,158545;")!=std::string::npos);
   auto firstLine=excel->text.find('\n');
-  CHECK(std::count(excel->text.begin(),excel->text.begin()+firstLine,';')==36);
-  CHECK(std::count(excel->text.begin()+firstLine,excel->text.end(),';')==36);
+  CHECK(std::count(excel->text.begin(),excel->text.begin()+firstLine,';')==35);
+  CHECK(std::count(excel->text.begin()+firstLine,excel->text.end(),';')==35);
   testUs=2200000;updateLogToSD();CHECK(excel->time==FS_TIME(12,0,2));
   sdLogFile.close();testUs=2400000;updateLogToSD();CHECK(disk["l-261027.csv"]==excel);
   CHECK(std::count(excel->text.begin(),excel->text.end(),'\n')==4); // Header not repeated on reopen.
@@ -131,7 +131,7 @@ int main(){
   for (auto& channel : channels) channel = Channel{};
   testUs=200000; batteryReply(0); updateLogToSD();
   auto missing=disk["l-261027.csv"];
-  CHECK(missing->text.substr(missing->text.find('\n')+1)=="2026-10-27 12:00:00,000;0,0"+std::string(35,';')+"\n");
+  CHECK(missing->text.substr(missing->text.find('\n')+1)=="2026-10-27 12:00:00,000;0,0"+std::string(34,';')+"\n");
   channels[BATT].set(0); channels[RPM].set(1234); channels[SA].setRaw(128,millis());
   channels[FAN_STATE].setRaw(0,millis()); channels[INJ1].setRaw(32768,millis());
   channels[LAT].set((int16_t)0x8000); gpsHigh[0]=1;

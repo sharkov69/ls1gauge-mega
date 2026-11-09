@@ -78,7 +78,7 @@ Pokaz obrazka zamyka menu i zachowuje logo na drugim ekranie. Odliczanie 5 sekun
 
 ## CSV i pauza logowania
 
-Podczas aktywnego logowania program zapisuje bieżący zestaw co 200 ms do l-YYMMDD.csv. CSV ma 37 kolumn, separator średnik i przecinek dziesiętny. Datetime zawiera milisekundy, GPS sześć miejsc po przecinku. Pole jest puste tylko przed pierwszym poprawnym pomiarem; potem pozostaje ostatnia wartość. Zapis nie odtwarza każdej ramki DPID.
+Podczas aktywnego logowania program zapisuje bieżący zestaw co 200 ms do l-YYMMDD.csv. CSV ma 36 kolumn, separator średnik i przecinek dziesiętny. Datetime zawiera milisekundy, GPS sześć miejsc po przecinku. Pole jest puste tylko przed pierwszym poprawnym pomiarem; potem pozostaje ostatnia wartość. Zapis nie odtwarza każdej ramki DPID.
 
 Zapis uruchamia rzeczywista odpowiedź Battery (PID 1141), także z pakietu DPID FD. RPM=0 nie zatrzymuje logowania. Kolejne odpowiedzi Battery podtrzymują zapis, nawet gdy napięcie się nie zmienia. Po ponad 15 s bez Battery program synchronizuje i zamyka plik; pierwsza nowa odpowiedź wznawia zapis. Przed pierwszą odpowiedzią ECM nie tworzy pustych logów. Demo nie udaje odpowiedzi Battery. Pauza nie zatrzymuje wysyłania wcześniej zapisanych danych do API.
 

@@ -21,6 +21,12 @@ int main(){
   CHECK(channels[O2].value==1375);CHECK(channels[O22].value==1720);CHECK(channels[BATT].value==140);
   CHECK(channels[WATER].value==80);CHECK(channels[AIR].value==20);CHECK(channels[TRANS].value==60);
   inject(fc,12);inject(fb,12);CHECK(counter==21);
+  CHECK(channels[TCC].flagActive(0x80,millis()));
+  uint8_t tccReply[]={0x6c,0xf1,0x10,0x62,0x19,0x00,0x7f,0};
+  decodeGaugeReply(tccReply,sizeof(tccReply));
+  CHECK(!channels[TCC].flagActive(0x80,millis()));
+  tccReply[6]=0x80;decodeGaugeReply(tccReply,sizeof(tccReply));
+  CHECK(channels[TCC].flagActive(0x80,millis()));
   CHECK(channels[INJ1].raw()==0x1234&&channels[INJ2].raw()==0xabcd);
   CHECK(((int16_t)channels[SA].raw() - 128)==-20);CHECK(channels[PRNDL].raw()==8);
   CHECK(channels[FAN_STATE].flagActive(1,millis())&&channels[FAN_STATE].flagActive(2,millis()));

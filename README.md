@@ -66,7 +66,7 @@ przed refaktoryzacją. Poprawność i czas nie zmieniają zasad zapisu starych k
 
 `lastDisplayed` przechowuje pamięć odrysowania ekranów, a `gpsHigh` górne słowa
 współrzędnych GPS. Definicje zapytań legacy są we Flash, ich czasy wysłania w RAM.
-Modem wysyła zapisany CSV z 37 kolumnami, bez drugiego bufora 30 pomiarów w RAM. Stary transport i jego token zostały usunięte.
+Modem wysyła zapisany CSV z 36 kolumnami, bez drugiego bufora 30 pomiarów w RAM. Stary transport i jego token zostały usunięte.
 
 Obsługa DPID i dodatkowych kanałów jest w `cmd.h`, a wskaźniki w `display.h`.
 Nie potrzeba już `extra_channels.h`, `vpw_reply.h`, `vpw_dpid.h` ani
