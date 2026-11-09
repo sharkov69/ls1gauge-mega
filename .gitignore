@@ -1,0 +1,11 @@
+.build/
+*-build.log
+*.obj
+*.exe
+*.pdb
+*.ilk
+P59.CFG
+P59.TLS
+outputs/
+ls1gauge-mega-update-*.zip
+

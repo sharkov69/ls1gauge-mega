@@ -2,28 +2,33 @@
 
 [Powrót do README](../README.md)
 
+Aktualizacja 2026-11-08: jedynym transportem jest CSV przez HTTPS. Konfigurację SD, PWRKEY i NTP opisuje [CSV_UPLOAD.md](CSV_UPLOAD.md). EEPROM 64–95 przechowuje trwały licznik plików.
+
 ## Start i główna pętla
 
 W `setup()` program uruchamia porty szeregowe, rozpoczyna inicjalizację modemu, konfiguruje czujniki i RTC, inicjalizuje SD, odczytuje EEPROM, uruchamia TFT oraz VPW. Na końcu włącza watchdog AVR z limitem 4 s. Brak RTC zatrzymuje start; błąd SD tylko generuje komunikat diagnostyczny i pozwala kontynuować.
 
-W `loop()` program obsługuje nadawanie i odbiór VPW, ekrany, przyciski, czujniki, logi, terminal oraz automat modemu. Część operacji modemu i GPS czeka na odpowiedź, więc poniższe interwały są wartościami nominalnymi, a nie gwarantowanym okresem próbkowania.
+W `loop()` program obsługuje odbiór i nadawanie VPW, ekrany, przyciski, czujniki, logi, terminal oraz automat modemu. Modem oddaje sterowanie między porcjami danych. Podczas oczekiwania na długą odpowiedź GPS pętla obsługuje VPW RX i modem, odkładając wolniejsze zadania do zakończenia odpowiedzi lub timeoutu 1 s. SD, grafika i DHT nadal mają koszty synchroniczne; poniższe interwały są nominalne.
 
 | Zadanie | Interwał / warunek |
 | --- | --- |
 | Początek wyświetlania wskaźników | Około 5 s po zapisaniu czasu startu GUI |
-| Odświeżanie parametrów TFT 1 | 400 ms |
+| Odświeżanie parametrów TFT 1 | 100 ms |
 | Odczyt DHT22 i DS18B20, próba pobrania GPS | 2500 ms; GPS tylko po inicjalizacji i poza wysyłką logu |
 | Aktualizacja zegara i sumowanie pomiarów | Impuls SQW 1 Hz |
-| Rekord w buforze | Co 2 obsłużone impulsy SQW |
-| Zapis i próba wysyłki bufora | 30 rekordów, nominalnie około 60 s |
-| Statystyki TX/RX | 20 przedziałów po 3 s, nominalnie ostatnia minuta |
+| Wysyłka LTE/HTTPS | Z kolejki SD, do 1024 B CSV na żądanie; seria do 16 żądań, potem zwolnienie UART |
+| Czas z internetu | Po połączeniu LTE i co 6 godzin; ponowienie błędu po 5 minutach, korekta RTC tylko powyżej 30 s |
+| Zapis szybkiego CSV na SD | Jeden zestaw co 200 ms, niezależnie od LTE |
+| Statystyka RX | 20 przedziałów po 3 s, nominalnie ostatnia minuta |
 | Obsługa watchdog AVR | Odświeżenie co około 2 s przy limicie 4 s |
 
 Flaga `tick` jest typu `bool`. Jeśli pętla utknie na dłużej niż sekundę, kilka impulsów SQW może zlać się w jeden obsłużony cykl.
 
 ## Zapytania VPW
 
-`send()` wybiera najbardziej opóźnione zapytanie z tablicy `cmd[]`. Respektuje minimalny odstęp `pause` oraz 10 ms od ostatniego przetworzonego odbioru. Następnie wywołuje `vpw.send(..., 10)`, czyli nadawanie z oczekiwaniem na wolną magistralę do 10 ms. Licznik TX zlicza próby wysłania; funkcja biblioteki nie zwraca potwierdzenia sukcesu.
+Domyślnie program przełącza 11 kanałów na [dwa pakiety DPID](DPID.md), nominalnie co około 200 ms każdy. Poniższy harmonogram pojedynczych zapytań obowiązuje przed konfiguracją, po powrocie do legacy lub po wyłączeniu DPID. Przeliczniki obu trybów są wspólne.
+
+`send()` wybiera najbardziej opóźnione zapytanie z tablicy `cmd[]`. Respektuje minimalny odstęp `pause` oraz 10 ms od ostatniego przetworzonego odbioru. Wywołuje `vpw.send(..., 1)`, ograniczając oczekiwanie na wolną magistralę do 1 ms. Czas ostatniego wysłania aktualizuje tylko po sukcesie biblioteki. Pomiar TX usunięto. Sposób zliczania kanałów w trybie pakietowym opisuje [DPID.md](DPID.md). To potwierdzenie nadania bez wykrytej kolizji, nie odpowiedzi ECU.
 
 Zapytania trybu `01` używają nagłówka `68 6A F1`; rozszerzone zapytania trybu `22` nagłówka `6C 10 F1` i dodatkowego bajtu `01` po PID. Biblioteka dopisuje CRC.
 
@@ -51,96 +56,67 @@ Dla odpowiedzi trybu `01` oznaczmy `A = pData[5]`, `B = pData[6]`. Kod oblicza R
 
 Dla rozszerzonych odpowiedzi używa `C = pData[6]`: temperatura skrzyni to `C-40`, napięcie to `C/10` V, a surowa wartość oleju to `max(0, ((C*111)>>8)-10)`. Ekran dzieli wartość oleju przez 10.
 
-Dla obu kanałów AFR program wyznacza `1029 + 3*C + ((C*117+128)>>8)`, a następnie średnią ruchomą z 10 wartości. Wartości spoza 1029–1911 zastępuje 1475; do prezentacji stosuje skalę 1/100. Ten przelicznik jest założeniem projektu, nie potwierdzeniem dokładności pomiaru AFR.
+Dla obu kanałów AFR program wyznacza `1029 + 3*C + ((C*117+128)>>8)`, a następnie średnią ruchomą z 4 wartości dla obu sond szerokopasmowych. Wartości spoza 1029–1911 zastępuje 1475; do prezentacji stosuje skalę 1/100. Ten przelicznik jest założeniem projektu, nie potwierdzeniem dokładności pomiaru AFR.
 
 Wartości czujników temperatury dodatkowej i wilgotności mają skalę 1/10. DS18B20 pracują z rozdzielczością 11 bitów, a program rozpoczyna konwersję bez oczekiwania i odbiera wynik w kolejnym cyklu.
 
 ### Biblioteka `J1850-VPW-WC`
 
-Biblioteka mierzy odstępy między zboczami RX w przerwaniu. Używa bufora 32 ramek i rozmiaru `BS=8` bajtów na ramkę. W odbiorze filtruje pierwszy bajt, dopuszczając `0x6C` i `0x48`; nie jest więc uniwersalnym rejestratorem wszystkich ramek VPW. Domyślne `tryGetReceivedFrame()` sprawdza CRC.
+Biblioteka mierzy odstępy między zboczami RX w przerwaniu. Używa bufora 32 ramek i rozmiaru `BS=13` bajtów na ramkę, łącznie z CRC. W odbiorze filtruje pierwszy bajt, dopuszczając `0x6C` i `0x48`; nie jest uniwersalnym rejestratorem wszystkich ramek VPW. `tryGetReceivedFrame()` sprawdza CRC każdej ramki i domyka ramkę także po ciszy na magistrali. Kolejka chroni odczyt krótką sekcją atomową; przepełnienie usuwa najstarszą ramkę i zwiększa licznik. Szkic dodatkowo sprawdza źródło `10`, adresowanie, usługę, PID i długość odpowiedzi.
 
 Nadajnik generuje nominalne impulsy 64 i 128 µs oraz SOF 200 µs. Podczas nadawania odłącza przerwanie RX i sprawdza arbitraż przez odczyt wejścia. Dołączony kod ogranicza się do krótkich ramek i nie obsługuje danych IFR jako osobnego protokołu aplikacyjnego.
 
 ## Ekrany i demo
 
-TFT 1 ma widok pełny i uproszczony. Łuk obrotomierza obejmuje zakres 0–6000 obr./min: zielony do 3500, żółty do 4500, dalej czerwony. W cyklu GUI program ogranicza przechowywane RPM do 0–6000 i zaokrągla je do 25 obr./min, co może wpływać również na log.
+TFT 1 ma widok pełny i uproszczony. Łuk obrotomierza obejmuje zakres 0–6000 obr./min: zielony do 3500, żółty do 4500, dalej czerwony. GUI ogranicza RPM do 0–6000 i zaokrągla je do 25 obr./min tylko w lokalnej wartości do prezentacji; nie modyfikuje tym pomiaru loggera.
 
 TFT 2 prezentuje zegar i czujniki w dwóch układach. Podczas pracy menu program wstrzymuje zwykłe rysowanie drugiego ekranu.
 
-Demo nadpisuje wybrane pola wartościami losowymi co cykl GUI. Nie wyłącza odpytywania ECU ani rejestracji, dlatego log może zawierać mieszaninę pomiarów i danych demonstracyjnych.
+Demo nadpisuje wybrane pola wartościami losowymi co 500 ms, niezależnie od odświeżania GUI. Włącza się je i wyłącza wyłącznie pozycją `Demo: ON/OFF` w menu; stan pozostaje w EEPROM. Nie wyłącza odpytywania ECU ani rejestracji, dlatego log może zawierać mieszaninę pomiarów i danych demonstracyjnych.
 
-## Bufor i CSV
+Pokaz obrazka zamyka menu i zachowuje logo na drugim ekranie. Odliczanie 5 sekund do powrotu obu ekranów do wskazań zaczyna się po zakończeniu ładowania BMP. Ikony A/C i FAN nie rysują się podczas logo ani menu. Pod zegarem są wiersze In, Out, Vent i Hum; Vent jest temperaturą z czujnika DHT, nie stanem żądania A/C.
 
-Co obsłużony impuls SQW program dodaje bieżące wartości do sum. Po dwóch impulsach zapisuje średnią całkowitą jako `LogEntry`. Brak pomiaru oznaczony `-32768` w sumowaniu zastępuje zerem; nie ma osobnej flagi jakości ani terminu ważności odczytu.
+Poza menu obrót enkodera w lewo usypia oba ekrany, a w prawo je budzi. Powtórzenie ruchu w tę samą stronę nie przełącza stanu. Naciśnięcie otwiera menu i budzi ekrany. Odstęp ochronny między zaakceptowanymi naciśnięciami wynosi 450 ms, bez blokowania pętli.
 
-Po zapełnieniu 30 rekordów program dopisuje je do `l-YYMMDD.csv`, np. `l-261027.csv`. Pierwszy wiersz nowego pliku zawiera nagłówki. Kolejność 18 kolumn:
+Pozycja `Clock View` zmienia układ zegara, zapisuje wybór i zamyka menu, aby od razu pokazać nowy widok.
 
-| Kolumna | Pole | Jednostka / zapis |
-| --- | --- | --- |
-| 1 | Datetime | `YYYY-MM-DD HH:MM:SS` |
-| 2 | Air Temp | °C |
-| 3 | Manifold Pressure | Wartość MAP / 100, jedno miejsce po przecinku |
-| 4 | TPS | % |
-| 5 | Battery | V, wartość / 10 |
-| 6 | AFR Bank 2 | Wartość / 100, jedno miejsce po przecinku |
-| 7 | Speed | km/h |
-| 8 | Transmission Temp | °C |
-| 9 | Oil Pressure | **CSV dzieli przez 100, choć ekran dzieli przez 10** |
-| 10 | Engine RPM | obr./min |
-| 11 | Coolant Temp | °C |
-| 12 | AFR Bank 1 | Wartość / 100, jedno miejsce po przecinku |
-| 13 | Vent Temp | °C, wartość / 10 |
-| 14 | Vent Humidity | %, wartość / 10 |
-| 15 | Outside Temp | °C, wartość / 10 |
-| 16 | Inside Temp | °C, wartość / 10 |
-| 17–18 | Latitude, Longitude | Stopnie dziesiętne, tylko jedno miejsce po przecinku |
+Pozycja `Dark: ON/OFF` ustawia intensywność kolorów obu ekranów na 40% lub 100%. Obejmuje tekst, ikony, łuki, menu, logo i BMP; nie steruje podświetleniem. Zmiana odrysowuje ekrany i zapisuje stan w EEPROM. Pusta komórka oznacza OFF. Funkcja przelicza składowe RGB565 bez bufora obrazu; zużycie statycznego RAM wzrosło o 1 bajt.
 
-Rok i miesiąc pochodzą z chwili zapisu całej paczki; rekord przechowuje tylko dzień i czas. Paczka obejmująca przejście miesiąca może więc otrzymać błędną datę części rekordów. Program zeruje indeks bufora także po nieudanym zapisie SD; nie ma odzyskiwania logów z RAM po restarcie.
+## CSV i pauza logowania
 
-## Modem, GPS i HTTP
+Podczas aktywnego logowania program zapisuje bieżący zestaw co 200 ms do l-YYMMDD.csv. CSV ma 36 kolumn, separator średnik i przecinek dziesiętny. Datetime zawiera milisekundy, GPS sześć miejsc po przecinku. Pole jest puste tylko przed pierwszym poprawnym pomiarem; potem pozostaje ostatnia wartość. Zapis nie odtwarza każdej ramki DPID.
 
-Inicjalizacja sprawdza kartę SIM, ustawia tryb sieci i APN `internet`, otwiera połączenie oraz uruchamia GPS. Test startowy wykonuje HTTP GET na endpoint logów i oczekuje dokładnie `+HTTPACTION: 0,403`. Zmiana zachowania serwera może zatrzymać przechodzenie do stanu gotowości.
+Zapis uruchamia rzeczywista odpowiedź Battery (PID 1141), także z pakietu DPID FD. RPM=0 nie zatrzymuje logowania. Kolejne odpowiedzi Battery podtrzymują zapis, nawet gdy napięcie się nie zmienia. Po ponad 15 s bez Battery program synchronizuje i zamyka plik; pierwsza nowa odpowiedź wznawia zapis. Przed pierwszą odpowiedzią ECM nie tworzy pustych logów. Demo nie udaje odpowiedzi Battery. Pauza nie zatrzymuje wysyłania wcześniej zapisanych danych do API.
 
-Po inicjalizacji program kontroluje `AT+CGATT?` i `AT+CREG?`. Dopuszcza rejestrację w sieci macierzystej lub roamingu; po około 20 s braku gotowości uruchamia ponownie sekwencję inicjalizacji. Nie jest to sprzętowe odcięcie zasilania modemu.
+Format Excela i daty FAT opisuje [CSV_EXCEL.md](CSV_EXCEL.md), a bieżące kolumny [CSV-P59.md](CSV-P59.md).
 
-GPS odczytuje przez `AT+CGPSINFO`. Pozycję zamienia na stopnie dziesiętne, mnoży przez milion i dzieli na dwie połówki 16-bitowe. Dolne słowa przechowuje w `wartosc`, górne w `lastValue`. Parser nie zapewnia pełnej walidacji braku fixa. Co więcej, logger uśrednia połówki niezależnie, więc przejście przez granicę słowa może zniekształcić współrzędne.
+## Modem, GPS i HTTPS
 
-Po zapełnieniu bufora program próbuje wysłać dwa POST-y po 15 rekordów do `http://ls1.cyra.com.pl/logger.php`, z typem `application/octet-stream`. Oczekuje odpowiedzi `+HTTPACTION: 1,200`. Podczas wysyłki wstrzymuje kontrolę sieci i odczyt GPS. Kod serwera nie znajduje się w repozytorium.
+Inicjalizacja sprawdza SIM, ustawia automatyczny wybór sieci i APN internet, sprawdza CGATT, otwiera połączenie i uruchamia GPS. Nie odpytuje starego serwera. Powtarzający się brak odpowiedzi AT uruchamia nieblokującą sekwencję PWRKEY na D12. Brak zasięgu przy odpowiadającym modemie nie uruchamia tej sekwencji.
 
-### Format pojedynczego POST-a
+GPS korzysta z AT+CGPSINFO. Parser sprawdza współrzędne, zakresy i kierunki; brak fixa pozostawia ostatnią pozycję. Dolne słowa współrzędnych są w channels, górne w gpsHigh.
 
-Poniższy układ wynika z kopiowania struktury w pamięci AVR. Przy przeniesieniu na inną architekturę trzeba sprawdzić wyrównanie i kolejność bajtów.
+UART ma jednego właściciela: inicjalizacja, kontrola sieci, GPS, HTTPS, recovery, PWRKEY lub NTP. HTTPS przesyła zatwierdzone na SD bajty CSV do API. Po utracie potwierdzenia pyta o offset serwera; nie usuwa lokalnych logów. Szczegóły protokołu P59C/P59A, kwalifikacji TLS, błędów i ograniczeń opisuje [CSV_UPLOAD.md](CSV_UPLOAD.md).
 
-| Offset | Rozmiar | Pole |
-| --- | --- | --- |
-| 0 | 12 bajtów | Token, bez końcowego `NUL` |
-| 12 | 2 bajty | Rok, little-endian |
-| 14 | 1 bajt | Miesiąc |
-| 15 | 630 bajtów | 15 rekordów po 42 bajty na AVR |
-| 645 | 2 bajty | CRC16, młodszy bajt najpierw |
-
-Razem: 647 bajtów. Makro `POSTBIN_SIZE` rezerwuje o jeden bajt więcej; `postSize` określa rzeczywistą długość transmisji. CRC obejmuje token, rok, miesiąc i rekordy, używa wielomianu `0x1021`, wartości początkowej `0xFFFF`, bez końcowego XOR.
-
-Rekord zawiera `day`, `hour`, `minute`, `second` jako cztery `uint8_t`, następnie 19 wartości `int16_t`: pola `cmd[0..16]` oraz górne słowa LAT i LON na pozycjach 17 i 18. Wartości binarne zachowują wewnętrzne skale programu, bez dzielników używanych przy zapisie CSV. Pakiet nie zawiera numeru części.
-
-Wysyłka korzysta z bieżącego `logBuffer`; osobna kopia bufora HTTP jest zakomentowana. Podczas opóźnionej transmisji nowe próbki mogą nadpisywać dane oczekujące na wysłanie. Program nie odsyła później zaległych CSV z karty. HTTP nie szyfruje tokenu ani pomiarów, w tym pozycji GPS.
+NTP ustawia RTC tylko przy różnicy większej niż 30 s. Program przelicza UTC na czas Warszawy i uwzględnia godzinę zmiany czasu. Oczekiwanie na modem nie używa delay(). Operacje SD, I2C i grafika nadal mają własny synchroniczny koszt wykonania.
 
 ## EEPROM
 
 | Adres | Dane |
 | --- | --- |
 | 0 | Flaga czasu letniego |
-| 1–12 | 12 znaków tokenu |
-| 13 | Zakończenie tokenu `NUL` |
+| 1–13 | Nieużywane po usunięciu starego tokenu |
 | 14 | Demo |
 | 15 | Widok wskaźników |
 | 16 | Widok zegara |
 | 17 | Pauza VPW w ms |
+| 18 | Flaga DEBUG_MODEM |
+| 19 | Tryb Dark (1 = ON, pozostałe = OFF) |
+| 64–95 | Trwały licznik plików CSV |
 
-Na starcie program ocenia token tylko po pierwszym znaku; nie sprawdza całego ciągu. Token pochodzi z `random()`, nie z generatora kryptograficznego. Pierwsze generowanie w `setup()` następuje przed `randomSeed(analogRead(A0))`.
 
-Pusta EEPROM może włączyć demo i oba tryby widoku, ponieważ wartość `0xFF` przechodzi na `true`. Pauza ma osobną kontrolę zakresu, która ustawia 75 ms dla wartości nieprawidłowej.
+Demo uruchamia się z EEPROM tylko dla zapisanej wartości `1`; pusta komórka `0xFF` go nie włącza. Oba tryby widoku nadal odczytują wartość jako `bool`. Pauza ma osobną kontrolę zakresu, która ustawia 75 ms dla wartości nieprawidłowej; usunięcie jej pozycji z menu nie zmienia harmonogramu VPW.
 
 ## Granice tej dokumentacji
 
-Opis rozbieżności skali oleju, jakości GPS, buforowania i komentarzy dotyczy aktualnego kodu. W ramach dokumentacji nie zmieniono firmware. Nie potwierdzono modelu modemu, schematu VPW, wersji środowiska ostatniego wsadu ani dokładności przeliczników rozszerzonych PID dla innych sterowników.
+Testy na stole nie zastępują próby z ECM w samochodzie. Nie zmieniono odczytu VPW ani skal PID. Dokładność rozszerzonych PID dla innych sterowników wymaga osobnego potwierdzenia.
