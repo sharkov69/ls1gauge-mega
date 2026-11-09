@@ -49,6 +49,23 @@ Obsługa konsoli następuje w pętli aplikacji; podczas startu sprzętu lub prio
 
 ## Czytanie logu
 
+Komendy diagnostyczne przez USB (115200):
+
+- `RTC`: `rtc` oznacza dostępny poprawny czas, `errors` liczy odrzucone odczyty
+  i skoki zegara, `timeout=1` oznacza co najmniej jeden timeout I²C od startu.
+  `epoch` opisuje czas lokalny RTC, a nie UTC.
+- `QUEUE`: nazwa wybranego pliku, jego dostępny trwały rozmiar i offset potwierdzony
+  przez API. `q=0` oznacza brak wybranego pliku. Gwiazdka LTE na ekranie sygnalizuje
+  gotowość modemu; nie potwierdza przyjęcia CSV przez serwer.
+
+Limit I²C wynosi 25 ms. Po błędzie odczytu RTC czas biegnie od ostatniej poprawnej
+wartości według `millis()`. Program odrzuca niepełne dane, błędny BCD, daty spoza
+2020–2099 i nieoczekiwane skoki większe niż 2 s. Jawne ustawienie czasu przez NTP,
+USB lub zmianę DST aktualizuje także zapamiętany czas. NTP nadal koryguje tylko
+różnicę ponad 30 s, chyba że nie ma jeszcze poprawnego czasu. SD nie odpytuje I²C
+podczas zapisu ani aktualizacji daty FAT; przed pierwszym poprawnym czasem nie
+tworzy logu CSV. Dokładność czasu zastępczego zależy od oscylatora Mega.
+
 Przykład formatu (nie zapis rzeczywistej próby):
 
 ```text
@@ -99,4 +116,4 @@ Każdy wpis mieści się w 63 bajtach. Przed zapisem program sprawdza miejsce na
 
 Nie wypisujemy zawartości POST. Na czas nadawania jego treści i oczekiwania na potwierdzenie wyciszamy także RX, aby nie ujawnić ewentualnego echa tokenu. Po błędzie wyciszenie trwa do ponownej inicjalizacji. Pozostałe odpowiedzi mogą zawierać adres IP i pozycję GPS. Arduino HardwareSerial nie udostępnia tu licznika przepełnień RX; licznik HB dotyczy utraconych wpisów diagnostycznych, nie danych modemu.
 
-Bieżąca kompilacja Mega: 4800 B statycznego SRAM. Diagnostyka działa również przy pełnym buforze USB, pomijając wpisy zamiast czekać. Testy hosta obejmują EEPROM, reset watchdogiem, parser, PWRKEY, NTP i transfer CSV. Próba sprzętowa potwierdziła wznowienie PWRKEY i NTP; heartbeat podczas próby raportował 3180 B wolnego RAM. Pomiar ten nie jest gwarancją maksymalnego zużycia stosu.
+Kompilacja z zabezpieczeniem RTC i ponawianiem DPID: 4814 B statycznego SRAM (+14 B względem wersji z 8 listopada). Diagnostyka działa również przy pełnym buforze USB, pomijając wpisy zamiast czekać. Testy hosta obejmują EEPROM, reset watchdogiem, parser, PWRKEY, NTP i transfer CSV. Próba sprzętowa potwierdziła wznowienie PWRKEY i NTP; heartbeat podczas próby raportował 3180 B wolnego RAM. Pomiar ten nie jest gwarancją maksymalnego zużycia stosu.

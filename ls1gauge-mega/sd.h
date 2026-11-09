@@ -3,7 +3,7 @@
 #include "sd_clock.h"
 SdFat SD;
 void sdDateTime(uint16_t *date, uint16_t *time) {
-	const DateTime stamp = rtc.now();
+	const DateTime stamp = rtcCachedNow();
 	*date = FS_DATE(stamp.year(), stamp.month(), stamp.day());
 	*time = FS_TIME(stamp.hour(), stamp.minute(), stamp.second());
 }
@@ -142,14 +142,14 @@ void sdWriteFailed() {
 }
 void updateLogToSD() {
 	const uint32_t sampleMs = millis();
-	if (!engineLogGate.allowed(sampleMs)) {
+	if (!ecuLogGate.allowed(sampleMs)) {
 		if (sdLogFile) {
 			if (!sdSyncLog())
 				sdWriteFailed();
 			else
 				sdLogFile.close();
 		}
-		// The first received running RPM may write immediately, without catch-up.
+		// The first Battery reply may write immediately, without catch-up.
 		sdLastSample = sampleMs - SD_SAMPLE_MS;
 		return;
 	}
@@ -159,7 +159,10 @@ void updateLogToSD() {
 		return;
 	sdLastSample = sampleMs;
 	sdBackoff = false;
-	sdClock.update(rtc.now().unixtime(), sampleMs);
+	const DateTime clockValue = rtcCachedNow();
+	if (!rtcTimeValid)
+		return;
+	sdClock.update(clockValue.unixtime(), sampleMs);
 	DateTime timestamp(sdClock.seconds);
 	// Copy values before disk work; the only per-sample buffer is 42 bytes on stack.
 	SdSnapshot record = {};

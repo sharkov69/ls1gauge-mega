@@ -113,6 +113,36 @@ void status(int index,uint16_t value) {
 }
 int main() {
 #ifdef UI_TEST
+    rtc.value = DateTime(2026,11,9,12,0,0);
+    assert(rtcNow().unixtime() == rtc.value.unixtime());
+    const uint32_t savedTime = rtc.value.unixtime();
+    Wire.status = 2; testMillisOffset = 3500;
+    assert(rtcNow().unixtime() == savedTime + 3);
+    assert(rtcReadErrors == 1);
+    Wire.status = 0; Wire.count = 3;
+    assert(rtcNow().unixtime() == savedTime + 3);
+    Wire.count = 7; Wire.badIndex = 0; Wire.badValue = 0x6a;
+    assert(rtcNow().unixtime() == savedTime + 3);
+    Wire.badIndex = -1; rtc.value = DateTime(2053,4,18);
+    assert(rtcNow().unixtime() == savedTime + 3);
+    rtc.value = DateTime(savedTime + 4);
+    assert(rtcNow().unixtime() == savedTime + 4);
+    const unsigned reads = Wire.requests;
+    assert(rtcCachedNow().unixtime() == savedTime + 4);
+    assert(Wire.requests == reads);
+    rtcTimeValid = false; rtc.value = DateTime(2000,1,1);
+    rtcNow(); assert(!rtcTimeValid);
+    rtc.value = DateTime(2026,11,9,12,0,0);
+    Wire.badIndex = 2; Wire.badValue = 0x72;
+    DateTime reading; assert(readRtcTime(reading) && reading.hour() == 12);
+    Wire.badValue = 0x52;
+    assert(readRtcTime(reading) && reading.hour() == 0);
+    Wire.badIndex = -1;
+    testMillisOffset = 0xfffffff0u;
+    setRtcTime(DateTime(savedTime));
+    testMillisOffset = 0x00000ba8u;
+    assert(rtcCachedNow().unixtime() == savedTime + 3);
+    testMillisOffset = 0; rtcTimeValid = false;
     uint32_t utc;
     assert(parseModemClock("+CCLK: \"26/11/08,22:00:00+04\"", utc));
     assert(utc==DateTime(2026,11,8,21,0,0).unixtime());
@@ -129,17 +159,17 @@ int main() {
     assert(!warsawSummerTime(DateTime(2026,10,25,1,0,0)));
     utc=DateTime(2026,11,8,21,0,0).unixtime();
     for (int delta : {-31,-30,0,30,31}) {
-        rtc.value=DateTime(utc+3600+delta); rtc.adjustments=0;
+        rtc.value=DateTime(utc+3600+delta); rtc.adjustments=0; rtcTimeValid=false;
         assert(syncRtcUtc(utc)==(abs(delta)>30));
         assert(rtc.adjustments==(abs(delta)>30 ? 1u : 0u));
     }
-    rtc.value=DateTime(2026,3,29,1,30,0); EEPROM.bytes[0]=0;
+    rtc.value=DateTime(2026,3,29,1,30,0); EEPROM.bytes[0]=0; rtcTimeValid=false;
     sprawdzLetni(); assert(rtc.now().hour()==1 && EEPROM.bytes[0]==0);
-    rtc.value=DateTime(2026,3,29,2,30,0);
+    rtc.value=DateTime(2026,3,29,2,30,0); rtcTimeValid=false;
     sprawdzLetni(); assert(rtc.now().hour()==3 && EEPROM.bytes[0]==1);
-    rtc.value=DateTime(2026,10,25,2,30,0); EEPROM.bytes[0]=1;
+    rtc.value=DateTime(2026,10,25,2,30,0); EEPROM.bytes[0]=1; rtcTimeValid=false;
     sprawdzLetni(); assert(rtc.now().hour()==2 && EEPROM.bytes[0]==1);
-    rtc.value=DateTime(2026,10,25,3,30,0);
+    rtc.value=DateTime(2026,10,25,3,30,0); rtcTimeValid=false;
     sprawdzLetni(); assert(rtc.now().hour()==2 && EEPROM.bytes[0]==0);
     rtc.value=DateTime(); now=DateTime(); tick=false;
     menuActive=true;

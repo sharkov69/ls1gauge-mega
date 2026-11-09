@@ -8,7 +8,7 @@ Brak P59.CFG lub P59.TLS blokuje wysyłkę, ale nie zapis CSV. Usunięto stary t
 
 Arduino skanuje logi na SD, odczytuje pozycję zatwierdzoną przez serwer i wysyła porcje do 1024 B. Odczytuje tylko bajty po udanym `sync()`. Po utracie ACK pyta o pozycję ponownie. Sesja HTTP obsługuje do 16 żądań, potem oddaje modem pozostałym zadaniom. Buforowanie UART i binarny ACK nie blokują pętli oczekiwaniem sieciowym. Nie ma przejścia na nieszyfrowany HTTP.
 
-RPM=0 przez ponad 10 s zatrzymuje zapis; pierwszy odczyt RPM>1 wznawia go. W tym czasie wysyłanie zaległości trwa, dopóki jest zasilanie. Nie gwarantujemy przesłania całego dnia w 10 minut: trzeba zmierzyć przepustowość SIM7600 i wpływ na VPW.
+Pierwsza poprawna odpowiedź PID Battery (1141), także w DPID FD, uruchamia zapis niezależnie od RPM i wartości napięcia. Każdy kolejny odczyt podtrzymuje zapis. Po ponad 15 s bez Battery program synchronizuje i zamyka log; nowa odpowiedź natychmiast wznawia zapis. Próg obejmuje trzy interwały Battery w fallback (5 s). Wysyłanie zapisanych zaległości trwa także bez komunikacji z ECM, dopóki jest zasilanie. Nie gwarantujemy przesłania całego dnia w 10 minut: trzeba zmierzyć przepustowość SIM7600 i wpływ na VPW.
 
 ID pliku składa się z 8-bajtowej przestrzeni instalacji oraz licznika. Licznik zajmuje EEPROM 64–95 (dwie kopie z CRC). Metadane SD `.u00`–`.u64` zachowują ID po restarcie i zmianie nazwy archiwum. Nie kasuj ich podczas zwykłego kopiowania logów. Skrócenie pliku nadaje nowe ID. Ręczna podmiana CSV na inny o tej samej lub większej długości wymaga usunięcia jego metadanych, aby nadać nowe ID. Po wyzerowaniu EEPROM wygeneruj nowy P59.CFG z nową przestrzenią instalacji. Zachowaj kopię poprzedniej karty.
 
@@ -73,7 +73,7 @@ Oczekuj `+HTTPACTION: 0,200,...`, odczytaj ciało przez HTTPREAD; `/healthz` ma 
 - Wgraj bieżący firmware; rozpocznij od krótkiego logu. Pobierz plik z API i porównaj bajty lub SHA-256 z zamkniętym plikiem SD. API administracyjne: GET /v1/files oraz GET /v1/files/{device_id}/{file_id}, nagłówek Authorization: Bearer z tokenem administratora. Nie zapisuj tokenu w URL.
 - Przerwij sieć przed ACK i uruchom ponownie zasilanie. Backend ma zachować jeden ciąg bajtów, bez duplikatów i luk. Po błędzie Arduino odczekuje 5,5 s ciszy na UART, chroniąc okno wejściowe `HTTPDATA`, następnie wymaga `+CPAS: 0` i `OK`. Zamyka poprzednią sesję przez `HTTPTERM` i potwierdza nową przez `HTTPINIT`, zanim wróci do inicjalizacji i wysyłki. Samo spóźnione `OK` nie wystarcza do potwierdzenia gotowości. Nie ma stałej przerwy 130 s; timeout poleceń HTTP wynosi do 120 s, ale poprawna odpowiedź kończy oczekiwanie wcześniej. Brak odpowiedzi powoduje ponowienie sprawdzenia po okresie ciszy, bez blokowania pętli.
 - Sprawdź zaległe pliki, zmianę dnia, archiwizację oraz rosnący dzienny CSV. Nie wyjmuj karty podczas normalnej pracy; próby awarii zasilania rób na kopii karty testowej.
-- RPM=0 przez 11 s: plik przestaje rosnąć, zaległości nadal się wysyłają. RPM>1: zapis wraca bez resetu urządzenia. Sprawdź również krótki postój 2–5 min.
+- Przy RPM=0 i regularnym Battery plik rośnie i jest wysyłany do API. Po utracie Battery na ponad 15 s plik przestaje rosnąć, a zaległości nadal się wysyłają. Pierwszy nowy Battery wznawia zapis bez resetu. Sprawdź DPID i fallback.
 - Zmierz ilość wysłanych bajtów przez 10 min, przerwy VPW, płynność wyświetlacza, GPS i wolny stos. Statyczny raport kompilatora nie mierzy stosu.
 
 ## Wyniki lokalne

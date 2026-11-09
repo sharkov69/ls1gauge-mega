@@ -1,8 +1,75 @@
 #include <RTClib.h>
+#include <Wire.h>
 RTC_DS3231 rtc;
 const byte sqwPin = 2;
 volatile bool tick = false;
 DateTime now;
+bool rtcTimeValid = false;
+uint16_t rtcReadErrors = 0;
+uint32_t rtcSeconds = 0, rtcMillis = 0;
+
+DateTime rtcCachedNow() {
+	if (!rtcTimeValid)
+		return DateTime(2000, 1, 1);
+	const uint32_t elapsed = (uint32_t)(millis() - rtcMillis) / 1000;
+	rtcSeconds += elapsed;
+	rtcMillis += elapsed * 1000;
+	return DateTime(rtcSeconds);
+}
+
+bool readRtcTime(DateTime &value) {
+	Wire.beginTransmission(0x68);
+	Wire.write((uint8_t)0);
+	if (Wire.endTransmission(false) != 0 ||
+	    Wire.requestFrom((uint8_t)0x68, (uint8_t)7) != 7)
+		return false;
+	uint8_t data[7];
+	for (uint8_t i = 0; i < sizeof(data); ++i)
+		data[i] = Wire.read();
+	// RTClib normally uses 24-hour mode; also accept a valid 12-hour RTC setting.
+	const bool twelveHour = data[2] & 0x40, pm = data[2] & 0x20;
+	data[2] &= twelveHour ? 0x1f : 0x3f;
+	if (data[5] & 0x80)
+		return false; // DateTime and the CSV filename only support years through 2099.
+	for (uint8_t i = 0; i < sizeof(data); ++i) {
+		if ((data[i] & 0x0f) > 9 || (data[i] >> 4) > 9)
+			return false;
+		data[i] = (data[i] >> 4) * 10 + (data[i] & 0x0f);
+	}
+	if (twelveHour) {
+		if (data[2] < 1 || data[2] > 12)
+			return false;
+		data[2] = data[2] % 12 + (pm ? 12 : 0);
+	}
+	if (data[0] > 59 || data[1] > 59 || data[2] > 23 || data[3] < 1 || data[3] > 7 ||
+	    data[4] < 1 || data[4] > 31 || data[5] < 1 || data[5] > 12 || data[6] < 20)
+		return false;
+	value = DateTime(2000 + data[6], data[5], data[4], data[2], data[1], data[0]);
+	return value.isValid();
+}
+
+DateTime rtcNow() {
+	const DateTime cached = rtcCachedNow();
+	DateTime value;
+	if (readRtcTime(value)) {
+		const int32_t difference = (int32_t)(value.unixtime() - cached.unixtime());
+		if (!rtcTimeValid || (difference >= -2 && difference <= 2)) {
+			rtcSeconds = value.unixtime();
+			rtcMillis = millis();
+			rtcTimeValid = true;
+			return value;
+		}
+	}
+	++rtcReadErrors;
+	return cached;
+}
+
+void setRtcTime(const DateTime &value) {
+	rtc.adjust(value);
+	rtcSeconds = value.unixtime();
+	rtcMillis = millis();
+	rtcTimeValid = true;
+}
 
 #include <EEPROM.h>
 #define EEPROM_DST_FLAG_ADDR 0
@@ -51,11 +118,11 @@ bool warsawSummerTime(const DateTime &utc) {
 bool syncRtcUtc(uint32_t utcSeconds) {
 	const bool summer = warsawSummerTime(DateTime(utcSeconds));
 	const DateTime local(utcSeconds + (summer ? 7200UL : 3600UL));
-	const int32_t difference = (int32_t)(local.unixtime() - rtc.now().unixtime());
+	const int32_t difference = (int32_t)(local.unixtime() - rtcNow().unixtime());
 	EEPROM.update(EEPROM_DST_FLAG_ADDR, summer ? 1 : 0);
-	if (difference >= -30 && difference <= 30)
+	if (rtcTimeValid && difference >= -30 && difference <= 30)
 		return false;
-	rtc.adjust(local);
+	setRtcTime(local);
 	now = local;
 	tick = true;
 	return true;
@@ -79,7 +146,9 @@ bool czyLetni(int day, int month, int weekday) {
 }
 
 void sprawdzLetni() {
-	DateTime now = rtc.now();
+	DateTime now = rtcNow();
+	if (!rtcTimeValid)
+		return;
 	uint8_t savedDST = EEPROM.read(EEPROM_DST_FLAG_ADDR);
 	const DateTime utc(now.unixtime() - (savedDST == 1 ? 7200UL : 3600UL));
 	bool nowDST = warsawSummerTime(utc);
@@ -87,12 +156,12 @@ void sprawdzLetni() {
 	if (nowDST && savedDST == 0) {
 		// był zapisany zimowy, teraz jest letni — dodaj godzinę
 		now = now + TimeSpan(3600);
-		rtc.adjust(now);
+		setRtcTime(now);
 		EEPROM.update(EEPROM_DST_FLAG_ADDR, 1);
 	} else if (!nowDST && savedDST == 1) {
 		// był zapisany letni, teraz jest zimowy — odejmij godzinę
 		now = now - TimeSpan(3600);
-		rtc.adjust(now);
+		setRtcTime(now);
 		EEPROM.update(EEPROM_DST_FLAG_ADDR, 0);
 	}
 }

@@ -103,26 +103,18 @@ struct Channel {
 };
 Channel channels[CHANNEL_COUNT];
 
-struct EngineLogGate {
-	uint32_t zeroSince = 0;
-	bool zeroPending = false, paused = false;
-	void receivedRpm(int16_t rpm, uint32_t now) {
-		if (rpm == 0) {
-			if (!zeroPending)
-				zeroSince = now;
-			zeroPending = true;
-		} else {
-			zeroPending = false;
-			if (rpm > 1)
-				paused = false;
-		}
+struct EcuLogGate {
+	uint32_t batteryAt = 0;
+	bool batteryReceived = false;
+	void receivedBattery(uint32_t now) {
+		batteryAt = now;
+		batteryReceived = true;
 	}
-	bool allowed(uint32_t now) {
-		if (zeroPending && (uint32_t)(now - zeroSince) > 10000)
-			paused = true;
-		return !paused;
+	bool allowed(uint32_t now) const {
+		// Allow three fallback Battery intervals, including unchanged readings.
+		return batteryReceived && (uint32_t)(now - batteryAt) <= 15000;
 	}
-} engineLogGate;
+} ecuLogGate;
 
 // Presentation state and GPS encoding must never share measurement storage.
 int16_t lastDisplayed[LAT] = {-32768, -32768, -32768, -32768, -32768, -32768, -32768, -32768,
@@ -235,6 +227,11 @@ class VpwDpid {
 		return fieldIndex;
 	}
 	void ecuSeen() {
+		// Retry only while the ECM still answers individual PID requests.
+		if (state == LEGACY && (uint32_t)(millis() - fallbackSince) >= 30000) {
+			state = WAIT_ECU;
+			fieldIndex = startGroup = seenMask = 0;
+		}
 		if (state == WAIT_ECU) {
 			state = STOP;
 			fallback = false;
@@ -305,7 +302,7 @@ class VpwDpid {
 				return -1;
 			}
 			lastError = code;
-			fail();
+			fail(now);
 		}
 		return -1;
 	}
@@ -315,12 +312,12 @@ class VpwDpid {
 			for (uint8_t i = 0; i < DPID_PACKET_COUNT; ++i)
 				if ((uint32_t)(now - seen[i]) >= 3000) {
 					lastError = 2;
-					fail();
+					fail(now);
 					break;
 				}
 		if (awaiting && (uint32_t)(now - commandSince) >= 2000) {
 			lastError = 1;
-			fail();
+			fail(now);
 		}
 		if (!canTransmit || awaiting || directPolling())
 			return false;
@@ -346,7 +343,7 @@ class VpwDpid {
   private:
 	uint8_t fieldIndex = 0, seenMask = 0, startGroup = 0;
 	bool awaiting = false, fallback = false, started = false, sawStream = false;
-	uint32_t commandSince = 0, keepSince = 0, seen[4] = {};
+	uint32_t commandSince = 0, keepSince = 0, fallbackSince = 0, seen[4] = {};
 	static uint8_t selector(const DpidField &f) {
 		return (uint8_t)(0x40 | ((f.offset + 1) << 3) | f.length);
 	}
@@ -381,8 +378,9 @@ class VpwDpid {
 		p[3] = 0x3f;
 		return 4;
 	}
-	void fail() {
+	void fail(uint32_t now) {
 		++failures;
+		fallbackSince = now;
 		awaiting = false;
 		if (started || sawStream) {
 			state = STOP;
@@ -547,7 +545,6 @@ void decodeGaugeReply(const uint8_t *pData, uint8_t dataSize) {
 		case 0x0C: { // rpm
 			if (dataSize >= 7) {
 				channels[RPM].set(((uint16_t)pData[5] << 8 | pData[6]) / 4);
-				engineLogGate.receivedRpm(channels[RPM].value, millis());
 #ifdef TXRX
 				DBG(F("RPM: "));
 				DBGL(channels[RPM].value);
@@ -597,6 +594,7 @@ void decodeGaugeReply(const uint8_t *pData, uint8_t dataSize) {
 				switch (pData[5]) {
 				case 0x41: {
 					channels[BATT].set(pData[6]);
+					ecuLogGate.receivedBattery(millis());
 #ifdef TXRX
 					DBG(F("Battery: "));
 					DBG(channels[BATT].value / 10.0, 1);

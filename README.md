@@ -2,9 +2,11 @@
 
 Projekt wskaźników i rejestratora danych samochodowych na Arduino Mega 2560. Program odpytuje sterownik przez J1850 VPW, wyświetla parametry na dwóch ekranach GC9A01A, zapisuje logi CSV na karcie SD i wysyła ich fragmenty przez LTE/HTTPS do API. Odczytuje też temperatury, wilgotność i pozycję GPS.
 
-Gałąź `codex/vpw-stage1` zawiera obsługę czterech pakietów DPID dla P59: 21 odczytywanych kanałów ECU oraz dodatkowe flagi wydzielane z tych samych bajtów. Wszystkie 27 kanałów, łącznie z czujnikami lokalnymi i GPS, korzystają ze wspólnej struktury `Channel`. Autor potwierdził działanie wcześniejszej obsługi DPID na P59. Bieżący firmware sprawdzono testami hosta i na Mega z modemem: automatyczne wznowienie PWRKEY, NTP, zapis SD i wysyłka HTTPS. Użytkownik potwierdził działanie zegara i przycisków. Zestaw na stole nie jest połączony z ECM.
+Gałąź `codex/vpw-stage1` zawiera obsługę czterech pakietów DPID dla P59: 21 odczytywanych kanałów ECU oraz dodatkowe flagi wydzielane z tych samych bajtów. Wszystkie 27 kanałów, łącznie z czujnikami lokalnymi i GPS, korzystają ze wspólnej struktury `Channel`. Autor potwierdził działanie wcześniejszej obsługi DPID na P59. Bieżący firmware sprawdzono testami hosta i na Mega z modemem: automatyczne wznowienie PWRKEY, NTP, zapis SD i wysyłka HTTPS. Użytkownik potwierdził działanie zegara i przycisków. Próba z 8 listopada nie obejmowała ECM. Poprawka z 9 listopada ogranicza oczekiwanie I²C, zachowuje czas po błędzie RTC i ponawia konfigurację DPID po przejściu na fallback.
 
 ## Dokumentacja
+
+- [Test RTC, DPID i zapisu po Battery z 9 listopada](docs/TESTY_RTC-20261109.md): ponad 16 minut na Mega z ECM, SD i LTE; bez resetu Arduino. Zapis trwa przy odbieranym Battery także przy RPM=0. Raport opisuje również nadal występujące błędy I²C i ponowienia LTE.
 
 - [CSV przez LTE, wznowienie modemu i czas RTC](docs/CSV_UPLOAD.md): aktualny tryb wysyłki, konfiguracja SD, PWRKEY na D12 i synchronizacja NTP z korektą powyżej 30 s.
 

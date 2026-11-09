@@ -125,6 +125,8 @@ void setup() {
 	pinMode(BUTTON2_PIN, INPUT_PULLUP);
 	pinMode(BUTTON3_PIN, INPUT_PULLUP);
 	debugSetupStage(3);
+	// A stalled RTC bus must not stop VPW, logging and modem servicing.
+	Wire.setWireTimeout(25000, true);
 	if (!rtc.begin()) {
 		DBGL(F("RTC nie działa!"));
 		while (1)
@@ -345,7 +347,7 @@ void loop(void) {
 	if (tick) {
 		tick = false;
 		debugStage(18);
-		now = rtc.now();
+		now = rtcNow();
 		debugStage(19);
 
 		if (guiStarted && screenPowerReady()) {

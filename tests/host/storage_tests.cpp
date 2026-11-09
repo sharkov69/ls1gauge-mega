@@ -13,6 +13,8 @@ struct DateTime {
   uint32_t unixtime()const{return epoch;}
 };
 struct {DateTime now(){return DateTime(1793102400u+(rtcDay-27)*86400u+millis()/1000);}} rtc;
+bool rtcTimeValid = true;
+DateTime rtcCachedNow() { return rtc.now(); }
 
 #include "../../ls1gauge-mega/sd.h"
 bool csvQueueNewFile(const char*) { return true; }
@@ -30,6 +32,12 @@ static int failures=0;
 #define CHECK(c) do{if(!(c)){printf("FAIL line %d: %s\n",__LINE__,#c);++failures;}}while(0)
 void put32(std::vector<uint8_t>& b,size_t i,uint32_t value){for(int j=0;j<4;++j)b[i+j]=(uint8_t)(value>>(j*8));}
 int main(){
+  auto batteryReply=[](uint8_t raw){
+    uint8_t reply[]={0x6c,0xf1,0x10,0x62,0x11,0x41,raw,0};
+    decodeGaugeReply(reply,sizeof(reply));
+  };
+  testUs=200000;updateLogToSD();CHECK(disk.empty());
+  testUs=0;sdLastSample=0;batteryReply(0);
   for (auto& channel : channels) channel.set(0);
   gpsHigh[0] = gpsHigh[1] = 0;
   // File metadata must use the hardware RTC, not the library's default date.
@@ -38,6 +46,9 @@ int main(){
   channels[INJ1].setRaw(19,0);channels[INJ2].setRaw(65535,0);channels[SA].setRaw(108,0);
   channels[PRNDL].setRaw(8,0);channels[TCC].setRaw(128,0);channels[SHIFT_MODE].setRaw(7,0);
   channels[AC_STATE].setRaw(11,0);channels[FAN_STATE].setRaw(3,0);channels[KR].setRaw(91,0);channels[CL_STATE].setRaw(35,0);
+  rtcTimeValid=false;
+  testUs=200000;updateLogToSD();CHECK(disk.empty());
+  rtcTimeValid=true; sdLastSample=0;
   testUs=199000;updateLogToSD();CHECK(disk.empty());
   testUs=200000;updateLogToSD();
   auto file=disk["l-261027.csv"];CHECK(file!=nullptr);
@@ -63,7 +74,7 @@ int main(){
   auto previousSyncs=file->syncs;rtcDay=28;testUs=8600000;updateLogToSD();
   CHECK(file->syncs==previousSyncs+1);CHECK(disk.count("l-261028.csv")==1);
   CHECK(disk["l-261028.csv"]->text.find("2026-10-28 12:00:08,000;")!=std::string::npos);
-  testUs=0;testMillisOffset=0xfffffff0u;updateLogToSD();auto beforeWrap=sdRows;
+  testUs=0;testMillisOffset=0xfffffff0u;batteryReply(0);updateLogToSD();auto beforeWrap=sdRows;
   testMillisOffset=0xb8u;updateLogToSD();CHECK(sdRows==beforeWrap+1);testMillisOffset=0;
   // Continuous elapsed time crosses midnight and millis rollover without jumping.
   SdSampleClock timeline;
@@ -118,9 +129,9 @@ int main(){
   // Never received is blank; a real zero and old readings remain numeric.
   sdLogFile.close(); disk.clear(); sdClock={}; sdLastSample=0; sdBackoff=false;
   for (auto& channel : channels) channel = Channel{};
-  testUs=200000; updateLogToSD();
+  testUs=200000; batteryReply(0); updateLogToSD();
   auto missing=disk["l-261027.csv"];
-  CHECK(missing->text.substr(missing->text.find('\n')+1)=="2026-10-27 12:00:00,000"+std::string(36,';')+"\n");
+  CHECK(missing->text.substr(missing->text.find('\n')+1)=="2026-10-27 12:00:00,000;0,0"+std::string(35,';')+"\n");
   channels[BATT].set(0); channels[RPM].set(1234); channels[SA].setRaw(128,millis());
   channels[FAN_STATE].setRaw(0,millis()); channels[INJ1].setRaw(32768,millis());
   channels[LAT].set((int16_t)0x8000); gpsHigh[0]=1;
@@ -134,35 +145,37 @@ int main(){
   CHECK(retained.substr(23)==later.substr(23));
   channels[RPM].set(0); testUs=10200000; updateLogToSD();
   CHECK(missing->text.substr(missing->text.rfind('\n',missing->text.size()-2)+1).find(";0,0;0;")!=std::string::npos);
-  // Exercise real PID decoding: continuous zero stops both logs, not ECU reads.
+  // A running ECM must be logged even when RPM stays zero on the bench.
   auto rpmReply=[](uint16_t rpm,uint32_t ms){
     testUs=0;testMillisOffset=ms;
     uint16_t raw=rpm*4;
     uint8_t reply[]={0x6c,0xf1,0x10,0x41,0x0c,(uint8_t)(raw>>8),(uint8_t)raw,0};
     decodeGaugeReply(reply,sizeof(reply));
   };
-  rpmReply(800,20000);updateLogToSD();
+  rpmReply(800,20000);batteryReply(120);updateLogToSD();
   rpmReply(0,21000);updateLogToSD();
-  rpmReply(0,30000);updateLogToSD(); // Repeated zeros must not restart the timer.
-  testMillisOffset=31000;auto rows=sdRows;updateLogToSD();CHECK(sdRows==rows+1);
+  rpmReply(0,30000);batteryReply(120);updateLogToSD();
+  testMillisOffset=41000;auto rows=sdRows;updateLogToSD();CHECK(sdRows==rows+1);
+  testMillisOffset=45000;updateLogToSD();CHECK(sdRows==rows+2);
   auto beforePause=missing->text.size();auto syncs=missing->syncs;
-  testMillisOffset=31001;updateLogToSD();
+  testMillisOffset=45001;updateLogToSD();
   CHECK(missing->text.size()==beforePause);CHECK(!sdLogFile);CHECK(missing->syncs==syncs+1);
   testMillisOffset=200000;updateLogToSD();CHECK(missing->text.size()==beforePause);
   rpmReply(1,200001);updateLogToSD();CHECK(missing->text.size()==beforePause);
-  rpmReply(2,200002);updateLogToSD();CHECK(sdRows==rows+2);CHECK(sdLogFile);
+  rpmReply(800,200002);updateLogToSD();CHECK(missing->text.size()==beforePause);
+  batteryReply(120);updateLogToSD();CHECK(sdRows==rows+3);CHECK(sdLogFile);
   CHECK(missing->text.find("Datetime;")==missing->text.rfind("Datetime;")); // One header.
-  // A short stop and a nonzero reading reset the continuous-zero timer.
-  rpmReply(0,210000);updateLogToSD();rpmReply(1,215000);updateLogToSD();
-  rpmReply(0,215001);updateLogToSD();testMillisOffset=220002;
+  // Battery fallback every five seconds keeps logging; value need not change.
+  rpmReply(0,210000);batteryReply(120);updateLogToSD();
+  rpmReply(0,215000);batteryReply(120);updateLogToSD();testMillisOffset=220002;
   rows=sdRows;updateLogToSD();CHECK(sdRows==rows+1);
   rpmReply(800,220003);updateLogToSD();
   // Unsigned elapsed time must also work across millis() rollover.
-  rpmReply(0,0xfffffff0u);updateLogToSD();
-  testMillisOffset=9984;updateLogToSD();CHECK(sdLogFile);
-  testMillisOffset=9985;updateLogToSD();CHECK(!sdLogFile);
-  // DPID uses the same RPM decoder and must resume on the first packet.
-  uint8_t packet[]={0,8,0,0,0,0};decodeDpidPacket(0,packet);
+  rpmReply(0,0xfffffff0u);batteryReply(120);updateLogToSD();
+  testMillisOffset=14984;updateLogToSD();CHECK(sdLogFile);
+  testMillisOffset=14985;updateLogToSD();CHECK(!sdLogFile);
+  // DPID FD carries Battery and must resume on the first packet, even at RPM=0.
+  uint8_t packet[]={0,0,120,0,0,0};decodeDpidPacket(1,packet);
   rows=sdRows;updateLogToSD();CHECK(sdRows==rows+1);
   printf("Storage failures: %d\n",failures);return failures?1:0;
 }

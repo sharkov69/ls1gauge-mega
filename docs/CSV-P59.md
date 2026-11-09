@@ -1,6 +1,6 @@
 # CSV i cztery pakiety DPID
 
-Aktualizacja 2026-11-06. Zmiany dotyczą VPW, ekranów i SD. Modem, API, format binarny, bufor 30 rekordów i harmonogram LTE pozostają bez zmian. `CMD_SIZE=17`, rekord LTE ma 42 bajty; nowe kanały nie trafiają do API.
+Aktualizacja 2026-11-09. Arduino zapisuje 37 kolumn CSV i wysyła fragmenty tego samego pliku przez LTE/HTTPS. Stary transport rekordów binarnych i jego bufor 30 rekordów zostały usunięte; szczegóły opisuje [CSV_UPLOAD.md](CSV_UPLOAD.md).
 
 ## Pakiety i źródła
 
@@ -18,6 +18,12 @@ SA: `raw/2-64` stopnie. Knock Retard: `raw/11.375` stopnie. Injector B1/B2: `raw
 Kontrolka paliwa: oba poprawne czasy wtrysku <0,3 ms, czyli raw <=19. To wnioskowanie o odcięciu, nie odczyt dedykowanej flagi DFCO. S: Trans Shift Mode 7 lub 8. Kontrolki wymagają danych nie starszych niż 500 ms; w awaryjnym odpytywaniu pojedynczym zwykłe stany mają limit 3 s, bo pełny obieg trwa co najmniej 2,5 s. Kontrolka odcięcia zachowuje ostrzejszy limit 500 ms dla obu banków. Po braku danych kontrolki są szare/ukryte. PRNDL bez danych pokazuje `?`, SA `--`.
 
 ## CSV
+
+Po błędzie DPID program przechodzi na odczyt pojedynczych PID-ów. Po co najmniej
+30 s ponawia pełną konfigurację, jeśli ECM nadal odpowiada. Najpierw zatrzymuje
+stary strumień, następnie definiuje pola od początku i uruchamia obie grupy.
+Brak odpowiedzi ECM nie powoduje ciągłych prób konfiguracji. Częstotliwość
+działającego DPID i indywidualne interwały fallback pozostają bez zmian.
 
 Pozostaje plik `l-YYMMDD.csv`, średnik i polski przecinek dziesiętny. Pierwsza kolumna: `Datetime`, np. `2026-11-05 14:32:10,200`. SD zapisuje najnowszy stan co 200 ms, synchronizuje co 1 s. To migawki 5 Hz, nie zapis każdej ramki VPW. Wolna karta nie wywołuje serii zaległych kopii.
 
@@ -49,6 +55,14 @@ Wspólne bajty i bity (numery od 0):
 - 1106: Fan 1 0, Fan 2 1.
 - 1102: Reverse Inhibited 4 (odwrócony), TCC Applied 7.
 - 1105: Closed Loop Active 0, O2 B1S1 Ready 1, O2 B2S1 Ready 3, Fuel Trim Learn 5.
+
+Uwaga do TCC (porównanie z 9 listopada 2026): katalog P59 Scanner dopuszcza dla
+`TCC Applied` warianty `1102`, `1900` i `192A`, każdy z maską `0x80`. Arduino
+korzysta z `1102`, natomiast wersjonowany profil `vgate39.Channels.xml` w P59
+Scanner wybiera `1900`. W logu Arduino flaga pozostaje aktywna także przy małej
+prędkości. Nie zmieniono odczytu na podstawie samej nazwy; zgodność flagi z
+faktycznym zablokowaniem sprzęgła wymaga porównania wariantów i `TCC Mode`
+(`1A13`) podczas jazdy.
 
 Closed Loop Active to nazwa stanu dostępnego w katalogu, odpowiadającego żądanemu wskaźnikowi pracy w closed loop. Nie zmienia nastaw ECU.
 

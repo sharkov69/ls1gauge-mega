@@ -80,7 +80,7 @@ Pokaz obrazka zamyka menu i zachowuje logo na drugim ekranie. Odliczanie 5 sekun
 
 Podczas aktywnego logowania program zapisuje bieżący zestaw co 200 ms do l-YYMMDD.csv. CSV ma 37 kolumn, separator średnik i przecinek dziesiętny. Datetime zawiera milisekundy, GPS sześć miejsc po przecinku. Pole jest puste tylko przed pierwszym poprawnym pomiarem; potem pozostaje ostatnia wartość. Zapis nie odtwarza każdej ramki DPID.
 
-Pierwszy odebrany RPM=0 rozpoczyna odliczanie. Kolejne zera go nie resetują. Po ponad 10 s program synchronizuje i zamyka plik, wstrzymując nowe wiersze. RPM>1 wznawia logowanie. RPM=1 przerywa odliczanie, lecz nie wznawia już zatrzymanego zapisu. Brak komunikacji z ECU nie jest odczytem RPM=0. Pauza nie zatrzymuje wysyłania wcześniej zapisanych danych do API.
+Zapis uruchamia rzeczywista odpowiedź Battery (PID 1141), także z pakietu DPID FD. RPM=0 nie zatrzymuje logowania. Kolejne odpowiedzi Battery podtrzymują zapis, nawet gdy napięcie się nie zmienia. Po ponad 15 s bez Battery program synchronizuje i zamyka plik; pierwsza nowa odpowiedź wznawia zapis. Przed pierwszą odpowiedzią ECM nie tworzy pustych logów. Demo nie udaje odpowiedzi Battery. Pauza nie zatrzymuje wysyłania wcześniej zapisanych danych do API.
 
 Format Excela i daty FAT opisuje [CSV_EXCEL.md](CSV_EXCEL.md), a bieżące kolumny [CSV-P59.md](CSV-P59.md).
 

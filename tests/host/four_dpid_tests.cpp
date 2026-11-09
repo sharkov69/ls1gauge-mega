@@ -48,5 +48,28 @@ int main(){
  VpwDpid second;startFirstGroup(second,100);reply(second,{0x6c,0xf1,0x10,0x7f,0x2a,0x14,0xfe,0xfd,0xfc,0xfb,0x23,0},101);second.tick(102,true,tx);
  reply(second,{0x6c,0xf1,0x10,0x7f,0x2a,0x24,0xfe,0xfd,0xfc,0xfb,0x12,0},103);CHECK(!second.directPolling());second.tick(104,true,tx);CHECK(sent[4]==0);
  reply(second,{0x6c,0xf1,0x10,0x6a,0,0},105);CHECK(second.directPolling());
+ // A transient setup timeout must not leave a responding ECM in fallback forever.
+ VpwDpid retry;
+ retry.ecuSeen(); retry.tick(100, true, tx);
+ reply(retry, {0x6c,0xf1,0x10,0x6a,0,0}, 101);
+ retry.tick(102, true, tx);
+ reply(retry, {0x6c,0xf1,0x10,0x6c,sent[4],sent[5],0}, 102);
+ CHECK(retry.definitionIndex() == 1);
+ retry.tick(103, true, tx);
+ retry.tick(2103, true, tx);
+ CHECK(retry.directPolling());
+ sent.clear(); retry.tick(40000, true, tx);
+ CHECK(retry.directPolling() && sent.empty());
+ testMillisOffset = 32102; retry.ecuSeen(); CHECK(retry.directPolling());
+ testMillisOffset = 32103; retry.ecuSeen(); CHECK(!retry.directPolling());
+ CHECK(retry.definitionIndex() == 0);
+ retry.tick(32102, true, tx); CHECK(sent[3] == 0x2a && sent[4] == 0);
+ startFirstGroup(retry, 32103);
+ reply(retry,{0x6c,0xf1,0x10,0x7f,0x2a,0x14,0xfe,0xfd,0xfc,0xfb,0x23,0},32104);
+ retry.tick(32105,true,tx);
+ reply(retry,{0x6c,0xf1,0x10,0x7f,0x2a,0x24,0xfe,0xfd,0xfc,0xfb,0x23,0},32106);
+ for(uint8_t i=0;i<4;++i){frame[4]=0xfe-i;retry.receive(frame,12,32107+i);}
+ CHECK(retry.active());
+ testMillisOffset = 0;
  printf("Four DPID failures: %d\n",failures);return failures?1:0;
 }

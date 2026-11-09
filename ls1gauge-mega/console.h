@@ -49,6 +49,20 @@ void handleConsole() {
 			if (n > 0 && n < (int)sizeof(report) && Serial.availableForWrite() >= n)
 				Serial.write((const uint8_t *)report, n);
 		}
+		if (!overflow && strcmp_P(line, PSTR("QUEUE")) == 0) {
+			char report[64];
+			int n = snprintf_P(report, sizeof(report), PSTR("q=%u file=%s size=%lu off=%lu\n"),
+			    csvQueueReady, csvQueueName, csvQueueLimit(), csvUploader.offset());
+			if (n > 0 && n < (int)sizeof(report) && Serial.availableForWrite() >= n)
+				Serial.write((const uint8_t *)report, n);
+		}
+		if (!overflow && strcmp_P(line, PSTR("RTC")) == 0) {
+			char report[64];
+			int n = snprintf_P(report, sizeof(report), PSTR("rtc=%u errors=%u timeout=%u epoch=%lu\n"),
+			    rtcTimeValid, rtcReadErrors, Wire.getWireTimeoutFlag(), rtcCachedNow().unixtime());
+			if (n > 0 && n < (int)sizeof(report) && Serial.availableForWrite() >= n)
+				Serial.write((const uint8_t *)report, n);
+		}
 		if (!overflow && strncmp_P(line, PSTR("CFG "), 4) == 0) {
 			bool success = false;
 			if (strcmp_P(line, PSTR("CFG COMMIT")) == 0) {
@@ -116,7 +130,7 @@ void handleConsole() {
 					if (value.isValid()) {
 						EEPROM.update(EEPROM_DST_FLAG_ADDR,
 						              czyLetni(d, m, value.dayOfTheWeek()) ? 1 : 0);
-						rtc.adjust(value);
+						setRtcTime(value);
 					}
 				}
 			}

@@ -12,6 +12,8 @@ struct DateTime {
   uint32_t unixtime()const{return epoch;}
 };
 struct {DateTime now(){return DateTime(1793102400u+millis()/1000);}} rtc;
+bool rtcTimeValid = true;
+DateTime rtcCachedNow() { return rtc.now(); }
 #include "../../ls1gauge-mega/sd.h"
 #include "../../ls1gauge-mega/csv_upload_queue.h"
 #include "../../ls1gauge-mega/csv_provision.h"
@@ -31,6 +33,8 @@ int main(){
   disk.erase("P59.TLS");
   disk.erase("P59.CFG");
   const uint8_t ns[8]={1};csvQueueInit(ns);
+  uint8_t battery[]={0x6c,0xf1,0x10,0x62,0x11,0x41,120,0};
+  decodeGaugeReply(battery,sizeof(battery));
   testUs=200000;updateLogToSD();
   auto file=disk["l-261027.csv"];CHECK(file!=nullptr);CHECK(sdUploadSyncedSize==0);
   csvQueueTick();CHECK(!csvQueueReady);
