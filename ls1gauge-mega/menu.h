@@ -1,8 +1,8 @@
 #pragma once
 constexpr uint16_t MENU_TIMEOUT_MS = 5000;
 constexpr uint16_t DEMO_INTERVAL_MS = 500;
-constexpr uint8_t MENU_OPTION_COUNT = 5;
-constexpr uint16_t debounceTime = 300;
+constexpr uint8_t MENU_OPTION_COUNT = 6;
+constexpr uint16_t debounceTime = 450;
 uint16_t menuStartTime = 0, lastDemoUpdate = 0;
 uint8_t menuPosition = 0;
 bool ekranWlaczony = true;
@@ -44,23 +44,24 @@ void updateScreenPower() {
 }
 
 void drawMenu() {
-	const int x = 30, y = 59, w = 180, h = 122;
-	tft2.fillRoundRect(x, y, w, h, 8, GC9A01A_DARKGREY);
+	const int x = 30, y = 48, w = 180, h = 144;
+	tft2.fillRoundRect(x, y, w, h, 8, displayColor(GC9A01A_DARKGREY));
 	tft2.setFont();
 	for (uint8_t i = 0; i < MENU_OPTION_COUNT; ++i) {
 		const int rowY = y + 5 + i * 22;
 		const uint16_t color = i == menuPosition ? GC9A01A_WHITE : GC9A01A_BLACK;
 		const uint16_t background = i == menuPosition ? GC9A01A_BLUE : GC9A01A_DARKGREY;
-		tft2.fillRect(x + 5, rowY, w - 10, 20, background);
+		tft2.fillRect(x + 5, rowY, w - 10, 20, displayColor(background));
 		tft2.setCursor(x + 10, rowY + 5);
-		tft2.setTextColor(color);
+		tft2.setTextColor(displayColor(color));
 		tft2.setTextSize(2);
 		switch (i) {
 		case 0: tft2.print(F("Show pictures")); break;
 		case 1: tft2.print(F("Gauge View")); break;
 		case 2: tft2.print(F("Clock View")); break;
 		case 3: tft2.print(demo ? F("Demo: ON") : F("Demo: OFF")); break;
-		case 4: tft2.print(F("Restart")); break;
+		case 4: tft2.print(darkMode ? F("Dark: ON") : F("Dark: OFF")); break;
+		case 5: tft2.print(F("Restart")); break;
 		}
 	}
 	wdt_reset();
@@ -100,6 +101,7 @@ void handleMenuOption(uint8_t pos) {
 	case 2:
 		clockMode = !clockMode;
 		EEPROM.update(EEPROM_CLOCK_ADDR, clockMode);
+		closeMenu();
 		break;
 	case 3:
 		demo = !demo;
@@ -108,6 +110,20 @@ void handleMenuOption(uint8_t pos) {
 		drawMenu();
 		break;
 	case 4:
+		darkMode = !darkMode;
+		EEPROM.update(EEPROM_DARK_ADDR, darkMode);
+		if (guiStarted) {
+			if (guiMode) drawGUI();
+			else drawGUI2();
+		} else {
+#ifdef LOGO
+			drawCamaroLogo();
+#endif
+			if (bmpDrawing) startDrawBMP(currentBMP);
+		}
+		closeMenu();
+		break;
+	case 5:
 		resetFunc();
 		break;
 	}
@@ -136,8 +152,10 @@ void handleMenuButtons(uint16_t nowMs) {
 			drawMenu();
 		} else if (pressed & 1) {
 			if (ekranWlaczony) wygasEkran();
-			else obudzEkran();
-			ekranWlaczony = !ekranWlaczony;
+			ekranWlaczony = false;
+		} else if (pressed & 4) {
+			if (!ekranWlaczony) obudzEkran();
+			ekranWlaczony = true;
 		}
 		return;
 	}

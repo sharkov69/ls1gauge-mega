@@ -64,6 +64,8 @@ public:
 } tft(1), tft2(2);
 int Neue_Leights28pt7b;
 #define clock traceClock
+bool darkMode=false;
+uint16_t displayColor(uint16_t color);
 bool guiStarted=true, guiMode=true, clockMode=true, clock=true, menuActive=false;
 constexpr int16_t KAT=210;
 int16_t lastKat=KAT,lastKat2=KAT;
@@ -85,7 +87,10 @@ void drawClimateIndicators(bool force=false);
 bool demo=false, bmpDrawing=false;
 uint16_t guiStartTime=0;
 void drawStartScreen() { tft2.record("logo"); }
+void drawCamaroLogo() { tft.record("logo"); tft2.record("logo"); }
 void nextBMP() { bmpDrawing=true; }
+char currentBMP[13] = {};
+void startDrawBMP(const char*) { bmpDrawing=true; }
 void resetStub() {}
 void (*resetFunc)()=resetStub;
 #include "../../ls1gauge-mega/menu.h"
@@ -232,10 +237,46 @@ int main() {
     menuActive=true; menuPosition=3; handleMenuOption(3);
     menuStartTime=20500;
     UI_CHECK(!demo && EEPROM.read(EEPROM_DEMO_ADDR)==0);
-    // Inactive menu entries and navigation have exactly five positions.
-    UI_CHECK(MENU_OPTION_COUNT==5);
+    // Inactive menu entries and navigation have exactly six positions.
+    UI_CHECK(MENU_OPTION_COUNT==6);
     buttons(21000,0); buttons(21500,4); UI_CHECK(menuPosition==4);
-    buttons(21600,0); buttons(22000,4); UI_CHECK(menuPosition==0);
+    buttons(21600,0); buttons(22000,4); UI_CHECK(menuPosition==5);
+    buttons(22100,0); buttons(22500,4); UI_CHECK(menuPosition==0);
+    const bool previousClockMode=clockMode;
+    trace.str(""); trace.clear();
+    handleMenuOption(2);
+    UI_CHECK(!menuActive && clockMode!=previousClockMode);
+    UI_CHECK(EEPROM.read(EEPROM_CLOCK_ADDR)==clockMode);
+    UI_CHECK(!trace.str().empty());
+    buttons(23000,0); buttons(23500,1);
+    UI_CHECK(!ekranWlaczony);
+    buttons(23600,0); buttons(24000,1);
+    UI_CHECK(!ekranWlaczony); // Repeated left cannot wake the screens.
+    buttons(24100,0); buttons(24450,4);
+    UI_CHECK(!ekranWlaczony); // Exactly 450 ms still belongs to the guard.
+    buttons(24451,0); buttons(24452,4);
+    UI_CHECK(ekranWlaczony);
+    buttons(24500,0); buttons(25000,4);
+    UI_CHECK(ekranWlaczony); // Repeated right cannot blank the screens.
+    buttons(25001,1); UI_CHECK(ekranWlaczony);
+    buttons(25100,0); buttons(25500,1); UI_CHECK(!ekranWlaczony);
+    buttons(25600,0); buttons(26000,2);
+    UI_CHECK(ekranWlaczony && menuActive); // Press opens the menu and wakes.
+    for (unsigned c=0;c<65536;++c) {
+        darkMode=false; UI_CHECK(displayColor(c)==c);
+        darkMode=true;
+        const uint16_t scaled=displayColor(c);
+        UI_CHECK((scaled>>11)==((c>>11)*2/5));
+        UI_CHECK(((scaled>>5)&63)==(((c>>5)&63)*2/5));
+        UI_CHECK((scaled&31)==((c&31)*2/5));
+    }
+    darkMode=false; menuActive=true; guiStarted=true;
+    trace.str(""); trace.clear(); handleMenuOption(4);
+    UI_CHECK(darkMode && !menuActive && EEPROM.read(EEPROM_DARK_ADDR)==1);
+    UI_CHECK(trace.str().find("color,25388")!=std::string::npos);
+    UI_CHECK(trace.str().find("2:fillScreen,0")!=std::string::npos);
+    handleMenuOption(4);
+    UI_CHECK(!darkMode && EEPROM.read(EEPROM_DARK_ADDR)==0);
     puts("UI drawing regressions passed");
     return 0;
 #else

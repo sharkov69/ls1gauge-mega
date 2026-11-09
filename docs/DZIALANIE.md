@@ -76,6 +76,12 @@ Demo nadpisuje wybrane pola wartościami losowymi co 500 ms, niezależnie od od�
 
 Pokaz obrazka zamyka menu i zachowuje logo na drugim ekranie. Odliczanie 5 sekund do powrotu obu ekranów do wskazań zaczyna się po zakończeniu ładowania BMP. Ikony A/C i FAN nie rysują się podczas logo ani menu. Pod zegarem są wiersze In, Out, Vent i Hum; Vent jest temperaturą z czujnika DHT, nie stanem żądania A/C.
 
+Poza menu obrót enkodera w lewo usypia oba ekrany, a w prawo je budzi. Powtórzenie ruchu w tę samą stronę nie przełącza stanu. Naciśnięcie otwiera menu i budzi ekrany. Odstęp ochronny między zaakceptowanymi naciśnięciami wynosi 450 ms, bez blokowania pętli.
+
+Pozycja `Clock View` zmienia układ zegara, zapisuje wybór i zamyka menu, aby od razu pokazać nowy widok.
+
+Pozycja `Dark: ON/OFF` ustawia intensywność kolorów obu ekranów na 40% lub 100%. Obejmuje tekst, ikony, łuki, menu, logo i BMP; nie steruje podświetleniem. Zmiana odrysowuje ekrany i zapisuje stan w EEPROM. Pusta komórka oznacza OFF. Funkcja przelicza składowe RGB565 bez bufora obrazu; zużycie statycznego RAM wzrosło o 1 bajt.
+
 ## CSV i pauza logowania
 
 Podczas aktywnego logowania program zapisuje bieżący zestaw co 200 ms do l-YYMMDD.csv. CSV ma 36 kolumn, separator średnik i przecinek dziesiętny. Datetime zawiera milisekundy, GPS sześć miejsc po przecinku. Pole jest puste tylko przed pierwszym poprawnym pomiarem; potem pozostaje ostatnia wartość. Zapis nie odtwarza każdej ramki DPID.
@@ -105,6 +111,7 @@ NTP ustawia RTC tylko przy różnicy większej niż 30 s. Program przelicza UTC 
 | 16 | Widok zegara |
 | 17 | Pauza VPW w ms |
 | 18 | Flaga DEBUG_MODEM |
+| 19 | Tryb Dark (1 = ON, pozostałe = OFF) |
 | 64–95 | Trwały licznik plików CSV |
 
 

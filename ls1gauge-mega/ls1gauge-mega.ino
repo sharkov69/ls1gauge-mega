@@ -6,6 +6,8 @@ bool demo;
 bool menuActive = false;
 bool guiMode;
 bool clockMode;
+bool darkMode = false;
+uint16_t displayColor(uint16_t color);
 uint8_t pause;
 // #define TXRX
 // #define DEBUGVPW
@@ -147,6 +149,7 @@ void setup() {
 	debugSetupStage(6);
 	csvLoadProvisioning();
 	demo = EEPROM.read(EEPROM_DEMO_ADDR) == 1;
+	darkMode = EEPROM.read(EEPROM_DARK_ADDR) == 1;
 	guiMode = EEPROM.read(EEPROM_GUI_ADDR);
 	clockMode = EEPROM.read(EEPROM_CLOCK_ADDR);
 	pause = EEPROM.read(EEPROM_PAUSE_ADDR);
@@ -230,7 +233,7 @@ void loop(void) {
 			const int16_t displaySpeed = max((int16_t)0, channels[SPEED].value);
 			if (displaySpeed != lastDisplayed[SPEED]) {
 				tft.setTextSize(3);
-				tft.setTextColor(GC9A01A_WHITE);
+				tft.setTextColor(displayColor(GC9A01A_WHITE));
 				tft.fillRect(90, 50, 80, 22, GC9A01A_BLACK);
 				snprintf(buf, sizeof(buf), "%d", displaySpeed);
 				tft.getTextBounds(buf, 0, 0, &x1, &y1, &w, &h);
@@ -241,9 +244,9 @@ void loop(void) {
 
 			if (displayRpm != lastDisplayed[RPM]) {
 				if (displayRpm > 4499) {
-					tft.setTextColor(GC9A01A_RED);
+					tft.setTextColor(displayColor(GC9A01A_RED));
 				} else {
-					tft.setTextColor(GC9A01A_GREEN);
+					tft.setTextColor(displayColor(GC9A01A_GREEN));
 				}
 
 				tft.setTextSize(1);
@@ -352,7 +355,7 @@ void loop(void) {
 
 		if (guiStarted && screenPowerReady()) {
 			tft.setTextSize(2);
-			tft.setTextColor(GC9A01A_RED);
+			tft.setTextColor(displayColor(GC9A01A_RED));
 			if (modemInitDone() && modemOnline) {
 				blinkState = !blinkState;
 

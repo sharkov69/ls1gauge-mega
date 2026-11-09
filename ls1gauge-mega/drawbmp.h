@@ -137,7 +137,7 @@ void continueDrawBMP() {
 	tft.setAddrWindow(bmpCol, bmpH - 1 - bmpRow, columns, 1);
 	for (uint8_t col = 0; col < columns; ++col) {
 		uint8_t i = col * 3;
-		tft.SPI_WRITE16(tft.color565(pixels[i + 2], pixels[i + 1], pixels[i]));
+		tft.SPI_WRITE16(displayColor(tft.color565(pixels[i + 2], pixels[i + 1], pixels[i])));
 	}
 	tft.endWrite();
 	bmpCol += columns;

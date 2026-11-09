@@ -20,6 +20,7 @@ DateTime rtcCachedNow() { return rtc.now(); }
 bool csvQueueNewFile(const char*) { return true; }
 bool csvQueueRename(const char*,const char*) { return true; }
 #define GC9A01A_BLACK 0
+uint16_t displayColor(uint16_t color) { return color; }
 struct {
   unsigned pixels=0, windows=0;
   uint16_t color565(uint8_t r,uint8_t g,uint8_t b){return ((r&248)<<8)|((g&252)<<3)|(b>>3);}

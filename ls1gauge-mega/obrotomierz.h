@@ -84,14 +84,14 @@ void obrotomierz(int16_t kat1, int16_t kat2, uint16_t kolor, bool main = true) {
 		int16_t id2 = i + 1 - KAT;
 		if (main) {
 			tft.drawLine(120 + RD(id, 0), 120 + RD(id, 1), 120 + RD(id2, 0), 120 + RD(id2, 1),
-			             kolor);
+			             displayColor(kolor));
 			tft.drawLine(120 + RD(id, 2), 120 + RD(id, 3), 120 + RD(id2, 2), 120 + RD(id2, 3),
-			             kolor);
+			             displayColor(kolor));
 		} else {
 			tft2.drawLine(120 + RD(id, 0), 120 + RD(id, 1), 120 + RD(id2, 0), 120 + RD(id2, 1),
-			              kolor);
+			              displayColor(kolor));
 			tft2.drawLine(120 + RD(id, 2), 120 + RD(id, 3), 120 + RD(id2, 2), 120 + RD(id2, 3),
-			              kolor);
+			              displayColor(kolor));
 		}
 	}
 }

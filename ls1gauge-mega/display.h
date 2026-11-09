@@ -1,12 +1,22 @@
 #pragma once
+
+uint16_t displayColor(uint16_t color) {
+	if (!darkMode) return color;
+	// Scale RGB565 channels independently to 40%, without a framebuffer.
+	const uint16_t r = ((color >> 11) * 2) / 5;
+	const uint16_t g = (((color >> 5) & 63) * 2) / 5;
+	const uint16_t b = ((color & 31) * 2) / 5;
+	return (r << 11) | (g << 5) | b;
+}
+
 // Small immediate-mode graphics; no framebuffer and no dynamic strings.
 void gaugeCircle(Adafruit_GFX &screen, uint8_t x, uint8_t y, const char *label, uint16_t color,
                  uint8_t sx = 2, uint8_t sy = 2) {
 	screen.fillRect(x - 14, y - 14, 29, 29, GC9A01A_BLACK);
-	screen.drawCircle(x, y, 14, color);
+	screen.drawCircle(x, y, 14, displayColor(color));
 	screen.setFont();
 	screen.setTextSize(sx, sy);
-	screen.setTextColor(color);
+	screen.setTextColor(displayColor(color));
 	screen.setCursor(x - ((strlen(label) * 6 - 1) * sx) / 2, y - (7 * sy) / 2);
 	screen.print(label);
 }
@@ -15,18 +25,18 @@ void drawFuelCut(bool on) {
 	if (!on)
 		return;
 	const uint16_t c = GC9A01A_WHITE;
-	tft.drawRect(166, 188, 12, 20, c);
-	tft.drawRect(168, 191, 8, 7, c);
-	tft.drawFastHLine(164, 208, 16, c);
-	tft.drawLine(177, 200, 181, 200, c);
-	tft.drawLine(181, 200, 181, 206, c);
-	tft.drawLine(181, 206, 185, 206, c);
-	tft.drawLine(185, 206, 185, 194, c);
-	tft.drawLine(185, 194, 181, 190, c);
+	tft.drawRect(166, 188, 12, 20, displayColor(c));
+	tft.drawRect(168, 191, 8, 7, displayColor(c));
+	tft.drawFastHLine(164, 208, 16, displayColor(c));
+	tft.drawLine(177, 200, 181, 200, displayColor(c));
+	tft.drawLine(181, 200, 181, 206, displayColor(c));
+	tft.drawLine(181, 206, 185, 206, displayColor(c));
+	tft.drawLine(185, 206, 185, 194, displayColor(c));
+	tft.drawLine(185, 194, 181, 190, displayColor(c));
 	for (int8_t d = -1; d <= 1; ++d)
 		tft.drawLine(163 + d, 209, 186 + d, 186, GC9A01A_BLACK);
-	tft.drawLine(163, 209, 186, 186, c);
-	tft.drawLine(164, 209, 187, 186, c);
+	tft.drawLine(163, 209, 186, 186, displayColor(c));
+	tft.drawLine(164, 209, 187, 186, displayColor(c));
 }
 void drawFirstExtra(bool force = false) {
 	static uint32_t previous = 0xffffffffUL;
@@ -71,7 +81,7 @@ void drawFirstExtra(bool force = false) {
 		tft.fillRect(173, 160, 36, 16, GC9A01A_BLACK);
 		tft.setFont();
 		tft.setTextSize(2);
-		tft.setTextColor(GC9A01A_WHITE);
+		tft.setTextColor(displayColor(GC9A01A_WHITE));
 		tft.setCursor(173, 160);
 		tft.print(value);
 		previousSA = sa;
@@ -140,9 +150,9 @@ void display(uint8_t id, int16_t value) {
 	tft.fillRect(field.x, field.y, field.w, field.h, GC9A01A_BLACK);
 	tft.setTextSize(field.textSize);
 	if (field.limit != -1 && value > field.limit) {
-		tft.setTextColor(GC9A01A_RED);
+		tft.setTextColor(displayColor(GC9A01A_RED));
 	} else {
-		tft.setTextColor(field.normColor);
+		tft.setTextColor(displayColor(field.normColor));
 	}
 	tft.setCursor(field.x, field.y);
 	char buf[8];
@@ -177,7 +187,7 @@ void drawGUI() {
 	}
 	tft.fillScreen(GC9A01A_BLACK);
 	tft.setTextSize(2);
-	tft.setTextColor(GC9A01A_WHITE);
+	tft.setTextColor(displayColor(GC9A01A_WHITE));
 	tft.setCursor(67, 30);
 	tft.println(F("Speed:"));
 	tft.setTextSize(3);
@@ -238,7 +248,7 @@ void drawGUI() {
 	drawFirstExtra(true);
 
 	tft.setTextSize(1);
-	tft.setTextColor(GC9A01A_YELLOW);
+	tft.setTextColor(displayColor(GC9A01A_YELLOW));
 	tft.setCursor(90, 225);
 	tft.print(F("RX"));
 	wdt_reset();
@@ -252,7 +262,7 @@ void drawGUI2() {
 
 	tft.fillScreen(GC9A01A_BLACK);
 	tft.setTextSize(2);
-	tft.setTextColor(GC9A01A_CYAN);
+	tft.setTextColor(displayColor(GC9A01A_CYAN));
 	tft.setCursor(60, 25);
 	tft.println(F("Speed:"));
 	lastKat = KAT;
@@ -281,7 +291,7 @@ void drawGUI2() {
 	tft.setCursor(72, 200);
 	tft.println(F("Bat:"));
 	tft.setTextSize(1);
-	tft.setTextColor(GC9A01A_YELLOW);
+	tft.setTextColor(displayColor(GC9A01A_YELLOW));
 	tft.setCursor(90, 225);
 	tft.print(F("RX"));
 	wdt_reset();

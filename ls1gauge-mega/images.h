@@ -310,9 +310,9 @@ void drawRLEImage(const uint8_t *data, size_t dataSize, uint8_t w, uint8_t h, ui
 
     for (uint8_t c = 0; c < count; c++) {
       if (main) {
-tft.drawPixel(x + oX, y + oY, color);
+tft.drawPixel(x + oX, y + oY, displayColor(color));
       } else {
-tft2.drawPixel(x + oX, y + oY, color);
+tft2.drawPixel(x + oX, y + oY, displayColor(color));
       }
       
       x++;
@@ -327,7 +327,7 @@ void drawStartScreen(){
 tft2.fillScreen(GC9A01A_BLACK);
   drawRLEImage(Camaro_Logo_RLE, sizeof(Camaro_Logo_RLE), 84, 180, (240-84)/2, (240-180)/2, false);
   tft2.setTextSize(3);
-  tft2.setTextColor(GC9A01A_WHITE);
+  tft2.setTextColor(displayColor(GC9A01A_WHITE));
   tft2.setCursor(95, 215); tft2.println("LS1");
   tft2.setCursor(52, 35); tft2.print("C");
   tft2.setCursor(175, 35); tft2.print("C");

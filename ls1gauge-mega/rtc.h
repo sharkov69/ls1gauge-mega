@@ -77,6 +77,7 @@ void setRtcTime(const DateTime &value) {
 #define EEPROM_GUI_ADDR 15
 #define EEPROM_CLOCK_ADDR 16
 #define EEPROM_PAUSE_ADDR 17
+#define EEPROM_DARK_ADDR 19
 
 bool parseModemClock(const char *line, uint32_t &utc) {
 	if (strncmp_P(line, PSTR("+CCLK: \""), 8) != 0)
@@ -187,7 +188,7 @@ void drawClockTemperature(uint8_t id, const __FlashStringHelper *label, uint8_t 
 	tft2.setFont();
 	const uint8_t labelX = id == TEMP_AC ? 49 : 61;
 	tft2.fillRect(labelX, y, 181 - labelX, 16, GC9A01A_BLACK);
-	tft2.setTextColor(GC9A01A_YELLOW);
+	tft2.setTextColor(displayColor(GC9A01A_YELLOW));
 	tft2.setTextSize(2);
 	tft2.setCursor(labelX, y);
 	tft2.print(label);
@@ -217,7 +218,7 @@ void drawTFT2() {
 
 		if (clockMode) {
 
-			tft2.setTextColor(GC9A01A_CYAN);
+			tft2.setTextColor(displayColor(GC9A01A_CYAN));
 			tft2.setTextSize(1);
 			tft2.setFont(&Neue_Leights28pt7b);
 			if (now.minute() != lastMinute) {
@@ -245,7 +246,7 @@ void drawTFT2() {
 			tft2.setFont();
 			if (now.day() != lastDay || now.month() != lastMonth || now.year() != lastYear ||
 			    now.dayOfTheWeek() != lastWeekday) {
-				tft2.setTextColor(GC9A01A_WHITE);
+				tft2.setTextColor(displayColor(GC9A01A_WHITE));
 				tft2.setTextSize(2);
 				tft2.fillRect(105, 50, 108, 80, GC9A01A_BLACK);
 				tft2.setCursor(105, 50);
@@ -273,7 +274,7 @@ void drawTFT2() {
 				tft2.fillRect(73, 205, 96, 16, GC9A01A_BLACK);
 				tft2.setFont();
 				tft2.setTextSize(2);
-				tft2.setTextColor(GC9A01A_YELLOW);
+				tft2.setTextColor(displayColor(GC9A01A_YELLOW));
 				char value[5];
 				if (channels[HUM].value == -32768)
 					strcpy(value, "--");
@@ -289,7 +290,7 @@ void drawTFT2() {
 			drawClimateIndicators();
 		} else {
 			tft2.setTextSize(5);
-			tft2.setTextColor(GC9A01A_WHITE);
+			tft2.setTextColor(displayColor(GC9A01A_WHITE));
 			if (clock) {
 				tft2.setCursor(113, 100);
 				tft2.print(F(":"));
@@ -298,7 +299,7 @@ void drawTFT2() {
 			}
 			clock = !clock;
 			tft2.setTextSize(2);
-			tft2.setTextColor(GC9A01A_CYAN);
+			tft2.setTextColor(displayColor(GC9A01A_CYAN));
 			tft2.setFont(&Neue_Leights28pt7b);
 			if (now.minute() != lastMinute) {
 				tft2.fillRect(63, 130, 126, 85, GC9A01A_BLACK);
@@ -324,7 +325,7 @@ void drawTFT2() {
 			}
 			tft2.setFont();
 			tft2.setTextSize(2);
-			tft2.setTextColor(GC9A01A_YELLOW);
+			tft2.setTextColor(displayColor(GC9A01A_YELLOW));
 			// In Temp
 			if (channels[TEMP_IN].value != lastDisplayed[TEMP_IN]) {
 				channels[TEMP_IN].value = constrain(channels[TEMP_IN].value, -999, 999);
