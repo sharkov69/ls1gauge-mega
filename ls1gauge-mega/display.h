@@ -205,7 +205,10 @@ void drawGUI() {
 	tft.println(F("BAT:"));
 	tft.setCursor(175, 80);
 	tft.print(F(" 0.0"));
+	tft.setTextSize(1);
+	tft.setCursor(224, 87);
 	tft.println(F("V"));
+	tft.setTextSize(2);
 	tft.setCursor(10, 100);
 	tft.println(F("AFR1:"));
 	tft.setCursor(125, 100);

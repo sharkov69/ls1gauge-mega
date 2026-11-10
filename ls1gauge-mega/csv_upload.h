@@ -5,7 +5,8 @@
 // Preliminary protocol core. The transport must verify TLS before calling prepare/acknowledge.
 class CsvUpload {
   public:
-	static constexpr uint16_t HEADER_SIZE = 58, CHUNK_SIZE = 1024, ACK_SIZE = 24;
+	static constexpr uint16_t HEADER_SIZE = 58, CHUNK_SIZE = 4096, BUFFER_SIZE = 2048,
+	                          ACK_SIZE = 24;
 	typedef int (*Reader)(void *, uint32_t, uint8_t *, uint16_t);
 	enum Status : uint8_t { UNCONFIGURED, READY, TLS_REQUIRED, WAITING, AT_END, READ_ERROR,
 	                        BAD_RESPONSE, REMOTE_AHEAD };
@@ -36,6 +37,7 @@ class CsvUpload {
 			return 0;
 		}
 		limit = syncedSize;
+		bufferStart = 0;
 		uint16_t length = 0;
 		if (!query) {
 			if (committed == limit) {
@@ -44,7 +46,8 @@ class CsvUpload {
 			}
 			const uint32_t remaining = limit - committed;
 			length = remaining > CHUNK_SIZE ? CHUNK_SIZE : (uint16_t)remaining;
-			if (!reader || reader(context, committed, packet + HEADER_SIZE, length) != length) {
+			const uint16_t first = length > BUFFER_SIZE ? BUFFER_SIZE : length;
+			if (!reader || reader(context, committed, packet + HEADER_SIZE, first) != first) {
 				state = READ_ERROR;
 				return 0;
 			}
@@ -57,8 +60,34 @@ class CsvUpload {
 		state = WAITING;
 		return HEADER_SIZE + length;
 	}
+	// The header stays intact while the same payload buffer serves both halves.
+	uint16_t bodyBlock(uint16_t offset, Reader reader, void *context, const uint8_t *&bytes) {
+		bytes = nullptr;
+		if (!pending || state != WAITING)
+			return 0;
+		if (offset < HEADER_SIZE) {
+			bytes = packet + offset;
+			return HEADER_SIZE - offset;
+		}
+		const uint16_t payloadOffset = offset - HEADER_SIZE;
+		const uint16_t length = expectedEnd - committed;
+		if (payloadOffset >= length)
+			return 0;
+		const uint16_t start = (payloadOffset / BUFFER_SIZE) * BUFFER_SIZE;
+		const uint16_t remaining = length - start;
+		const uint16_t count = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining;
+		if (start != bufferStart) {
+			if (!reader || reader(context, committed + start, packet + HEADER_SIZE, count) != count) {
+				state = READ_ERROR;
+				return 0;
+			}
+			bufferStart = start;
+		}
+		bytes = packet + HEADER_SIZE + payloadOffset - start;
+		return count - (payloadOffset - start);
+	}
 	bool acknowledge(bool verifiedTls, uint16_t httpStatus, const uint8_t *body, uint16_t length) {
-		if (!pending)
+		if (!pending || state != WAITING)
 			return false;
 		if (!verifiedTls || httpStatus != 200 || !body || length != ACK_SIZE ||
 		    memcmp(body, "P59A", 4) != 0 || memcmp(body + 4, packet + 36, 16) != 0) {
@@ -84,7 +113,8 @@ class CsvUpload {
 	Status status() const { return state; }
 
   private:
-	uint8_t packet[HEADER_SIZE + CHUNK_SIZE] = {};
+	uint8_t packet[HEADER_SIZE + BUFFER_SIZE] = {};
+	uint16_t bufferStart = 0;
 	uint32_t committed = 0, limit = 0, expectedEnd = 0;
 	bool configured = false, pending = false, query = true;
 	Status state = UNCONFIGURED;

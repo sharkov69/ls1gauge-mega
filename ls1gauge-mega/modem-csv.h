@@ -192,9 +192,20 @@ void modemHttpTick() {
 		}
 		break;
 	case CSV_BODY: {
+		CsvUploadSdSource source(SD, csvQueueName);
+		const uint8_t *bytes;
+		uint16_t available = csvUploader.bodyBlock(csvBodyOffset, CsvUploadSdSource::read,
+		                                          &source, bytes);
+		if (!available) {
+			recoverModem();
+			break;
+		}
 		uint8_t budget = MODEM_BUDGET;
-		while (budget-- && csvBodyOffset < csvBodySize && Serial1.availableForWrite() > 0)
-			Serial1.write(csvUploader.data()[csvBodyOffset++]);
+		while (budget-- && available && Serial1.availableForWrite() > 0) {
+			Serial1.write(*bytes++);
+			--available;
+			++csvBodyOffset;
+		}
 		if (csvBodyOffset == csvBodySize) {
 			// Arm reception before the peer can acknowledge the last byte.
 			at.expected = AT_OK;

@@ -55,7 +55,7 @@ int16_t lastKat = KAT;
 int16_t lastKat2 = KAT;
 
 uint16_t lastUpdate = 0;
-uint16_t refreshInterval = 100;
+uint16_t refreshInterval = 200;
 uint16_t refreshInterval2 = 3000;
 uint16_t guiStartTime;
 bool guiStarted = false;
@@ -195,6 +195,8 @@ void loop(void) {
 	czas = (uint16_t)(millis() & 0xFFFF);
 	debugStage(11);
 	read();
+	// Capture short encoder pulses during LTE; draw/process only outside its fast path.
+	pollMenuButtons(czas);
 	if (modemNeedsFastService()) {
 		debugStage(12);
 		modemInitTick();

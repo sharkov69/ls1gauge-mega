@@ -176,5 +176,15 @@ int main(){
     for(int i=0;i<400&&!at.done;++i){testUs+=1000;pumpAT();}
     CHECK(at.done&&!at.result&&Serial.blockedWrites==0);
 #endif
+    modemRestartCount = 0;
+    startModemPowerCycle();
+    CHECK(modemRestartCount == 1);
+    recoverModem();
+    CHECK(modemRestartCount == 1);
+    startModemPowerCycle();
+    CHECK(modemRestartCount == 2);
+    modemRestartCount = UINT16_MAX;
+    startModemPowerCycle();
+    CHECK(modemRestartCount == UINT16_MAX);
     printf("Modem failures: %d\n",failures);return failures?1:0;
 }

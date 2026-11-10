@@ -186,7 +186,7 @@ void drawClockTemperature(uint8_t id, const __FlashStringHelper *label, uint8_t 
 	}
 	const uint8_t length = strlen(value), sx = length > 4 ? 1 : 2;
 	tft2.setFont();
-	const uint8_t labelX = id == TEMP_AC ? 49 : 61;
+	const uint8_t labelX = id == TEMP_AC ? 49 : id == TEMP_IN ? 73 : 61;
 	tft2.fillRect(labelX, y, 181 - labelX, 16, GC9A01A_BLACK);
 	tft2.setTextColor(displayColor(GC9A01A_YELLOW));
 	tft2.setTextSize(2);
@@ -202,10 +202,35 @@ void drawClockTemperature(uint8_t id, const __FlashStringHelper *label, uint8_t 
 	lastDisplayed[id] = v;
 }
 
+extern uint16_t modemRestartCount;
+
+void drawModemRestartCount() {
+	char count[6];
+	snprintf(count, sizeof(count), "%u", modemRestartCount);
+	const uint8_t width = 17 + strlen(count) * 6;
+	const uint8_t x = 120 - width / 2;
+	const uint16_t color = displayColor(GC9A01A_DARKGREY);
+	tft2.fillRect(94, 222, 52, 12, GC9A01A_BLACK);
+	// Two small radio waves and a dot, matching the RX text scale.
+	tft2.drawLine(x, 226, x + 3, 223, color);
+	tft2.drawFastHLine(x + 3, 223, 7, color);
+	tft2.drawLine(x + 9, 223, x + 12, 226, color);
+	tft2.drawLine(x + 3, 228, x + 5, 226, color);
+	tft2.drawFastHLine(x + 5, 226, 3, color);
+	tft2.drawLine(x + 7, 226, x + 9, 228, color);
+	tft2.drawFastHLine(x + 6, 231, 1, color);
+	tft2.setFont();
+	tft2.setTextSize(1);
+	tft2.setTextColor(color);
+	tft2.setCursor(x + 17, 225);
+	tft2.print(count);
+}
+
 void drawTFT2() {
 	if (menuActive)
 		return;
 	if (guiStarted) {
+		drawModemRestartCount();
 		int16_t kat2 = KAT + map(now.second(), 0, 60, 0, 300);
 
 		if (kat2 > lastKat2) {
@@ -267,7 +292,7 @@ void drawTFT2() {
 				lastWeekday = now.dayOfTheWeek();
 			}
 
-			drawClockTemperature(TEMP_IN, F("In: "), 145);
+			drawClockTemperature(TEMP_IN, F("In:"), 145);
 			drawClockTemperature(TEMP_OUT, F("Out:"), 165);
 			drawClockTemperature(TEMP_AC, F("Vent:"), 185);
 			if (channels[HUM].value != lastDisplayed[HUM]) {

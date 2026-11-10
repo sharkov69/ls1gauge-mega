@@ -64,6 +64,7 @@ public:
 } tft(1), tft2(2);
 int Neue_Leights28pt7b;
 #define clock traceClock
+uint16_t modemRestartCount = 0;
 bool darkMode=false;
 uint16_t displayColor(uint16_t color);
 bool guiStarted=true, guiMode=true, clockMode=true, clock=true, menuActive=false;
@@ -117,6 +118,19 @@ void status(int index,uint16_t value) {
 #endif
 }
 int main() {
+    for (uint16_t count : {0, 9, 10, 65535}) {
+        modemRestartCount = count;
+        trace.str("");
+        drawModemRestartCount();
+        assert(trace.str().find("2:print," + std::to_string(count) + "\n") != std::string::npos);
+    }
+    trace.str("");
+    menuActive = true;
+    drawTFT2();
+    assert(trace.str().empty());
+    menuActive = false;
+    modemRestartCount = 0;
+
 #ifdef UI_TEST
     rtc.value = DateTime(2026,11,9,12,0,0);
     assert(rtcNow().unixtime() == rtc.value.unixtime());
@@ -252,9 +266,9 @@ int main() {
     UI_CHECK(!ekranWlaczony);
     buttons(23600,0); buttons(24000,1);
     UI_CHECK(!ekranWlaczony); // Repeated left cannot wake the screens.
-    buttons(24100,0); buttons(24450,4);
-    UI_CHECK(!ekranWlaczony); // Exactly 450 ms still belongs to the guard.
-    buttons(24451,0); buttons(24452,4);
+    buttons(24050,0); buttons(24150,4);
+    UI_CHECK(!ekranWlaczony); // Exactly 150 ms still belongs to the guard.
+    buttons(24151,0); buttons(24152,4);
     UI_CHECK(ekranWlaczony);
     buttons(24500,0); buttons(25000,4);
     UI_CHECK(ekranWlaczony); // Repeated right cannot blank the screens.
@@ -277,6 +291,16 @@ int main() {
     UI_CHECK(trace.str().find("2:fillScreen,0")!=std::string::npos);
     handleMenuOption(4);
     UI_CHECK(!darkMode && EEPROM.read(EEPROM_DARK_ADDR)==0);
+    // LTE fast path samples pulses without drawing; normal service preserves their order.
+    menuActive=true;menuPosition=0;trace.str("");trace.clear();
+    for(uint16_t t : {27000,27200,27400}) {
+        pins[BUTTON1_PIN]=HIGH;pins[BUTTON2_PIN]=HIGH;pins[BUTTON3_PIN]=LOW;
+        pollMenuButtons(t);
+        pins[BUTTON3_PIN]=HIGH;pollMenuButtons(t+20);
+    }
+    UI_CHECK(menuEventCount==3&&menuPosition==0&&trace.str().empty());
+    handleMenuButtons(27500);handleMenuButtons(27501);handleMenuButtons(27502);
+    UI_CHECK(menuPosition==3&&menuEventCount==0);
     puts("UI drawing regressions passed");
     return 0;
 #else

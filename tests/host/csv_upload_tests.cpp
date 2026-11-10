@@ -20,7 +20,7 @@ int main(){
   for(int i=0;i<16;++i)id[i]=(uint8_t)(0xa0+i);
   for(size_t i=0;i<source.size();++i)source[i]=(uint8_t)i;
   CsvUpload upload;
-  CHECK(sizeof(upload)<=1120);
+  CHECK(sizeof(upload)<=2160);
   CHECK(upload.prepare(true,700,readBytes,nullptr)==0); // Provision first.
   CHECK(upload.begin(token,id));
   CHECK(upload.prepare(false,700,readBytes,nullptr)==0);CHECK(reads==0);
@@ -76,20 +76,65 @@ int main(){
   file->readError=true;CHECK(CsvUploadSdSource::read(&diskSource,0,bytes,10)<0);
   CsvUploadSdSource missing(sd,"missing.csv");CHECK(CsvUploadSdSource::read(&missing,0,bytes,10)<0);
   CHECK(disk.count("missing.csv")==0);
-  // One full 1024-byte payload followed by the exact remaining bytes.
-  source.resize(1800);
-  for(size_t i=0;i<source.size();++i)source[i]=(uint8_t)i;
-  CHECK(upload.begin(token,id));CHECK(upload.prepare(true,1800,readBytes,nullptr)==58);
+  // A 4 KiB POST streams through a 2 KiB buffer without repeated or missing bytes.
+  source.resize(5000);
+  for(size_t i=0;i<source.size();++i)source[i]=(uint8_t)(i*17+i/2048);
+  CHECK(upload.begin(token,id));CHECK(upload.prepare(true,5000,readBytes,nullptr)==58);
   response=ack(0);CHECK(upload.acknowledge(true,200,response.data(),24));
-  CHECK(upload.prepare(true,1800,readBytes,nullptr)==1082);
-  CHECK(memcmp(upload.data()+52,"\0\0\0\0\0\x04",6)==0);
-  CHECK(memcmp(upload.data()+58,source.data(),1024)==0);
-  response=ack(1024);CHECK(upload.acknowledge(true,200,response.data(),24));
-  CHECK(upload.prepare(true,1800,readBytes,nullptr)==834);
-  CHECK(memcmp(upload.data()+52,"\0\x04\0\0\x08\x03",6)==0);
-  CHECK(memcmp(upload.data()+58,source.data()+1024,776)==0);
-  response=ack(1800);CHECK(upload.acknowledge(true,200,response.data(),24));
-  CHECK(upload.prepare(true,1800,readBytes,nullptr)==0);CHECK(upload.status()==CsvUpload::AT_END);
+  const int before=reads;
+  CHECK(upload.prepare(true,5000,readBytes,nullptr)==4154);
+  CHECK(reads==before+1);
+  std::vector<uint8_t> sent;
+  for(uint16_t offset=0;offset<4154;) {
+    const uint8_t* block=nullptr;
+    const uint16_t available=upload.bodyBlock(offset,readBytes,nullptr,block);
+    CHECK(available>0);if(!available)break;
+    const uint16_t count=available>23?23:available;
+    sent.insert(sent.end(),block,block+count);offset+=count;
+  }
+  CHECK(reads==before+2 && sent.size()==4154);
+  if(sent.size()==4154) {
+    CHECK(sent[56]==0 && sent[57]==16);
+    CHECK(memcmp(sent.data()+58,source.data(),4096)==0);
+  }
+  CHECK(memcmp(upload.data()+4,token,32)==0);
+  response=ack(4096);CHECK(upload.acknowledge(true,200,response.data(),24));
+  CHECK(upload.prepare(true,5000,readBytes,nullptr)==962);
+  CHECK(memcmp(upload.data()+58,source.data()+4096,904)==0);
+  response=ack(5000);CHECK(upload.acknowledge(true,200,response.data(),24));
+  CHECK(upload.prepare(true,5000,readBytes,nullptr)==0);
+  // A failed second read must not advance progress; retry starts with a query.
+  CHECK(upload.begin(token,id));CHECK(upload.prepare(true,4096,readBytes,nullptr)==58);
+  response=ack(0);CHECK(upload.acknowledge(true,200,response.data(),24));
+  CHECK(upload.prepare(true,4096,readBytes,nullptr)==4154);
+  source.resize(2048);
+  const uint8_t* missingBlock=nullptr;
+  CHECK(upload.bodyBlock(58+2048,readBytes,nullptr,missingBlock)==0);
+  CHECK(upload.status()==CsvUpload::READ_ERROR && upload.offset()==0);
+  response=ack(4096);CHECK(!upload.acknowledge(true,200,response.data(),24));
+  upload.retry();
+  CHECK(upload.prepare(true,4096,readBytes,nullptr)==58);
+  response=ack(4096);CHECK(upload.acknowledge(true,200,response.data(),24));
+  CHECK(upload.offset()==4096);
+  // Buffer and POST boundaries, with an SD tail beyond the synced limit.
+  source.resize(6000);
+  for(size_t i=0;i<source.size();++i)source[i]=(uint8_t)(i*19+i/2048);
+  for(uint16_t limit : {2047,2048,2049,4095,4096,4097}) {
+    CHECK(upload.begin(token,id));CHECK(upload.prepare(true,limit,readBytes,nullptr)==58);
+    response=ack(0);CHECK(upload.acknowledge(true,200,response.data(),24));
+    const uint16_t length=limit>4096?4096:limit;
+    CHECK(upload.prepare(true,limit,readBytes,nullptr)==58+length);
+    uint16_t offset=58;
+    while(offset<58+length) {
+      const uint8_t* block=nullptr;
+      const uint16_t n=upload.bodyBlock(offset,readBytes,nullptr,block);
+      CHECK(n && offset+n<=58+length);if(!n)break;
+      CHECK(memcmp(block,source.data()+offset-58,n)==0);
+      offset+=n;
+    }
+    const uint8_t* pastEnd=nullptr;
+    CHECK(upload.bodyBlock(58+length,readBytes,nullptr,pastEnd)==0);
+  }
   uint8_t zero[32]={};CHECK(!upload.begin(zero,id));CHECK(!upload.begin(token,zero));
   CHECK(upload.prepare(true,700,readBytes,nullptr)==0);
   printf("CSV upload failures: %d; object bytes: %zu\n",failures,sizeof(upload));return failures?1:0;

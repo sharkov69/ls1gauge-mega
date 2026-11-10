@@ -6,7 +6,9 @@ Brak P59.CFG lub P59.TLS blokuje wysyłkę, ale nie zapis CSV. Usunięto stary t
 
 ## Działanie
 
-Arduino skanuje logi na SD, odczytuje pozycję zatwierdzoną przez serwer i wysyła porcje do 1024 B. Odczytuje tylko bajty po udanym `sync()`. Po utracie ACK pyta o pozycję ponownie. Sesja HTTP obsługuje do 16 żądań, potem oddaje modem pozostałym zadaniom. Buforowanie UART i binarny ACK nie blokują pętli oczekiwaniem sieciowym. Nie ma przejścia na nieszyfrowany HTTP.
+Arduino skanuje logi na SD, odczytuje pozycję zatwierdzoną przez serwer i wysyła porcje do 4096 B. Bufor danych ma 2048 B; drugi blok jest doczytywany z SD po wysłaniu pierwszego, a 58-bajtowy nagłówek pozostaje nienaruszony. Odczytuje tylko bajty po udanym `sync()`, do granicy ustalonej przed rozpoczęciem POST. Po utracie ACK pyta o pozycję ponownie. Błąd drugiego odczytu przerywa transmisję i uruchamia recovery, bez wysyłania starej zawartości bufora. Sesja HTTP obsługuje do 16 żądań, potem oddaje modem pozostałym zadaniom. Buforowanie UART i binarny ACK nie blokują pętli oczekiwaniem sieciowym. Nie ma przejścia na nieszyfrowany HTTP.
+
+Wersja 4 kB przeszła 12 zestawów testów hosta oraz kompilację Mega: 106456 B Flash i 5841 B statycznego SRAM, pozostaje 2351 B na stos i dane lokalne. Przyrost SRAM wynosi 1026 B (1024 B bufora oraz 2 B pozycji bloku). Firmware wgrano 10 listopada 2026; test przy zaległościach wykazał około 2185 B/s wysyłki wobec 481 B/s zapisu SD. Wieczorem opóźnienie API spadło do 13 s. Testy obejmują granice 2/4 kB, zgodność przesłanych bajtów, błąd odczytu w połowie POST i utratę potwierdzenia. Podczas przesyłania treści nadal działa szybka ścieżka modemu, która odracza SD/GUI; pomiar wykazał około 4 wierszy/s zamiast nominalnych 5 podczas intensywnego transferu. Zmiana nie usuwa przyczyny okresowego braku odpowiedzi modemu.
 
 Pierwsza poprawna odpowiedź PID Battery (1141), także w DPID FD, uruchamia zapis niezależnie od RPM i wartości napięcia. Każdy kolejny odczyt podtrzymuje zapis. Po ponad 15 s bez Battery program synchronizuje i zamyka log; nowa odpowiedź natychmiast wznawia zapis. Próg obejmuje trzy interwały Battery w fallback (5 s). Wysyłanie zapisanych zaległości trwa także bez komunikacji z ECM, dopóki jest zasilanie. Nie gwarantujemy przesłania całego dnia w 10 minut: trzeba zmierzyć przepustowość SIM7600 i wpływ na VPW.
 
@@ -160,7 +162,7 @@ Debug: `PW 0/1/3/4` oznacza etapy PWRKEY, `RA` korektę RTC,
 - [Instrukcja producenta BK-SIM7600](https://pdfcoffee.com/2018-07-24-122343-bk-sim7600-board-user-manual-v10-pdf-free.html)
 - [SIMCom AT V3.00: CNTP i CCLK](https://files.waveshare.com/wiki/SIM7600G-H/SIM7500_SIM7600_Series_AT_Command_Manual_V3.00.pdf)
 
-POST /v1/chunks: `P59C` (4 B), sekret (32 B), ID (16 B), offset uint32 LE, długość uint16 LE, dokładne bajty CSV. Arduino: do 1024 B danych, backend: do 4096 B. Offset 0xffffffff i długość 0 pytają o postęp. HTTP200 musi zawierać dokładnie 24 B: `P59A`, ID, zatwierdzony offset uint32 LE. Potwierdzenie następuje po transakcji bazy.
+POST /v1/chunks: `P59C` (4 B), sekret (32 B), ID (16 B), offset uint32 LE, długość uint16 LE, dokładne bajty CSV. Arduino i backend: do 4096 B danych (4154 B całej treści POST). Offset 0xffffffff i długość 0 pytają o postęp. HTTP200 musi zawierać dokładnie 24 B: `P59A`, ID, zatwierdzony offset uint32 LE. Potwierdzenie następuje po transakcji bazy.
 
 Parser obsługuje udokumentowane HTTPREAD: początkowe OK, +HTTPREAD:24, 24 bajty, +HTTPREAD:0; wariant z końcowym OK dopuszcza tylko bez początkowego OK. Bufor z tokenem nie trafia do debugowania.
 

@@ -125,8 +125,8 @@ int main(){
  modemInitTick();CHECK(modemOnline&&modemOwner==OWNER_IDLE&&!at.busy);
  reset();csvTlsQualified=false;Peer disabled;for(int i=0;i<1000;++i)disabled.step();CHECK(disabled.bodies.empty()&&disabled.commands.empty());
  reset();Peer ok;for(int i=0;i<15000&&csvQueueReady;++i)ok.step();
- CHECK(!csvQueueReady);CHECK(logUploadErrors==0);CHECK(ok.bodies.size()==3);CHECK(csvUploader.offset()==1300);
- if(ok.bodies.size()==3){CHECK(ok.bodies[0].size()==58);CHECK(ok.bodies[1].size()==1082);CHECK(ok.bodies[2].size()==334);}
+ CHECK(!csvQueueReady);CHECK(logUploadErrors==0);CHECK(ok.bodies.size()==2);CHECK(csvUploader.offset()==1300);
+ if(ok.bodies.size()==2){CHECK(ok.bodies[0].size()==58);CHECK(ok.bodies[1].size()==1358);}
  CHECK(std::count(ok.commands.begin(),ok.commands.end(),"AT+CSSLCFG=\"authmode\",0,1")==1);
  CHECK(std::count(ok.commands.begin(),ok.commands.end(),"AT+HTTPTERM")==1);
  CHECK(std::find(ok.commands.begin(),ok.commands.end(),"AT+HTTPPARA=\"URL\",\"https://camaro.it-tiger.pl/v1/chunks\"")!=ok.commands.end());
@@ -152,8 +152,8 @@ int main(){
  CHECK(logUploadErrors==1&&!csvReleaseAfterTerm&&!csvFileStarted);
  reset();disk[csvQueueName]->readError=true;Peer unreadable;
  for(int i=0;i<15000&&csvQueueReady;++i)unreadable.step();CHECK(!csvQueueReady&&unreadable.bodies.size()==1);
- reset();testLimit=32768;disk[csvQueueName]->bytes.resize(testLimit,'x');Peer burst;
- for(int i=0;i<25000;++i){burst.step();if(!modemHttpPending()&&!burst.bodies.empty())break;}
+ reset();testLimit=65536;disk[csvQueueName]->bytes.resize(testLimit,'x');Peer burst;
+ for(int i=0;i<60000;++i){burst.step();if(!modemHttpPending()&&!burst.bodies.empty())break;}
  CHECK(burst.bodies.size()==16);CHECK(csvQueueReady);CHECK(modemOwner==OWNER_IDLE);
  CHECK(csvUploader.offset()==15*CsvUpload::CHUNK_SIZE);CHECK((int32_t)(csvRetryAfter-millis())>0);
  for(int mode=0;mode<5;++mode){
@@ -211,11 +211,43 @@ int main(){
  // Full TX ring expires without sending commands into HTTPDATA or changing the packet.
  reset();csvHttpState=CSV_BODY;modemOwner=OWNER_HTTP;csvBodyOffset=0;csvBodySize=58;csvBodySince=0;
  csvUploader.begin(csvDeviceSecret,csvQueueId);
+ csvUploader.prepare(true,testLimit,CsvUploadSdSource::read,nullptr);
  Serial1.room=0;for(int i=0;i<4600&&modemOwner!=OWNER_RECOVERY;++i){testUs+=1000;modemHttpTick();}
  CHECK(millis()>=4500);CHECK(modemOwner==OWNER_RECOVERY);CHECK(Serial1.blockedWrites==0);CHECK(waitedMs==0);
  reset();Peer replaced;for(int i=0;i<3000&&csvHttpState!=CSV_BODY;++i)replaced.step();
  CHECK(csvHttpState==CSV_BODY);csvQueueId[15]^=1;replaced.step();
  CHECK(modemOwner==OWNER_RECOVERY);CHECK(csvUploader.offset()==0);csvQueueId[15]^=1;
+ // Stream 4 KiB plus a tail through a two-byte UART ring.
+ reset();testLimit=5000;disk[csvQueueName]->bytes.resize(testLimit);
+ for(unsigned i=0;i<testLimit;++i)disk[csvQueueName]->bytes[i]=(uint8_t)(i*13+i/2048);
+ Peer large;
+ for(int i=0;i<15000&&csvQueueReady;++i)large.step();
+ CHECK(!csvQueueReady&&csvUploader.offset()==5000&&large.bodies.size()==3);
+ if(large.bodies.size()==3) {
+  CHECK(large.bodies[1].size()==4154&&large.bodies[2].size()==962);
+  CHECK(memcmp(large.bodies[1].data()+58,disk[csvQueueName]->bytes.data(),4096)==0);
+  CHECK(memcmp(large.bodies[2].data()+58,disk[csvQueueName]->bytes.data()+4096,904)==0);
+ }
+ // A second-half SD error must enter recovery without sending stale buffer bytes.
+ reset();testLimit=4096;disk[csvQueueName]->bytes.resize(testLimit,'x');Peer broken;
+ for(int i=0;i<12000;++i) {
+  if(csvHttpState==CSV_BODY&&csvBodySize>58&&csvBodyOffset>=58+2048)
+   disk[csvQueueName]->readError=true;
+  broken.step();
+  if(modemOwner==OWNER_RECOVERY)break;
+ }
+ CHECK(modemOwner==OWNER_RECOVERY&&csvUploader.offset()==0);
+ CHECK(broken.bodies.size()==1&&broken.remaining==2048);
+ // Losing the 4 KiB ACK queries the server before sending the remaining tail.
+ reset();testLimit=5000;disk[csvQueueName]->bytes.resize(testLimit,'y');Peer lost;
+ for(int i=0;i<70000&&modemOwner!=OWNER_RECOVERY;++i) {
+  if(csvHttpState==CSV_BODY&&csvBodySize>58)lost.dropAction=true;
+  lost.step();
+ }
+ CHECK(modemOwner==OWNER_RECOVERY&&csvUploader.offset()==0&&lost.remote==4096);
+ lost.dropAction=false;
+ for(int i=0;i<30000&&csvQueueReady;++i)lost.step();
+ CHECK(!csvQueueReady&&csvUploader.offset()==5000&&lost.remote==5000);
  // Strict numeric parser rejects overflow and trailing data.
  const char *numbers[]={"4294967296","24junk","-1","24"};
  for(int i=0;i<4;++i){const char *p=numbers[i];uint32_t n;CHECK(csvNumber(p,n,0)==(i==3));}

@@ -2,7 +2,7 @@
 constexpr uint16_t MENU_TIMEOUT_MS = 5000;
 constexpr uint16_t DEMO_INTERVAL_MS = 500;
 constexpr uint8_t MENU_OPTION_COUNT = 6;
-constexpr uint16_t debounceTime = 450;
+constexpr uint16_t debounceTime = 150;
 uint16_t menuStartTime = 0, lastDemoUpdate = 0;
 uint8_t menuPosition = 0;
 bool ekranWlaczony = true;
@@ -129,17 +129,34 @@ void handleMenuOption(uint8_t pos) {
 	}
 }
 
-void handleMenuButtons(uint16_t nowMs) {
+uint8_t menuEvents[16] = {};
+uint8_t menuEventHead = 0, menuEventCount = 0;
+void pollMenuButtons(uint16_t nowMs) {
 	static uint8_t previousButtons = 0;
+	static uint16_t lastPress = 0;
 	const uint8_t buttons = (digitalRead(BUTTON1_PIN) == LOW ? 1 : 0) |
 	                        (digitalRead(BUTTON2_PIN) == LOW ? 2 : 0) |
 	                        (digitalRead(BUTTON3_PIN) == LOW ? 4 : 0);
 	const uint8_t pressed = buttons & ~previousButtons;
 	previousButtons = buttons;
+	if (!pressed || (uint16_t)(nowMs - lastPress) <= debounceTime)
+		return;
+	lastPress = nowMs;
+	if (menuEventCount < sizeof(menuEvents)) {
+		menuEvents[(menuEventHead + menuEventCount) % sizeof(menuEvents)] = pressed;
+		++menuEventCount;
+	}
+}
+void handleMenuButtons(uint16_t nowMs) {
+	pollMenuButtons(nowMs);
+	if (!menuEventCount) {
 	if (menuActive && (uint16_t)(nowMs - menuStartTime) >= MENU_TIMEOUT_MS)
 		closeMenu();
-	if (!pressed || (uint16_t)(nowMs - menuStartTime) <= debounceTime)
 		return;
+	}
+	const uint8_t pressed = menuEvents[menuEventHead];
+	menuEventHead = (menuEventHead + 1) % sizeof(menuEvents);
+	--menuEventCount;
 	menuStartTime = nowMs;
 	if (!menuActive) {
 		if (pressed & 2) {

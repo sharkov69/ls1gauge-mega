@@ -76,7 +76,7 @@ Demo nadpisuje wybrane pola wartościami losowymi co 500 ms, niezależnie od od�
 
 Pokaz obrazka zamyka menu i zachowuje logo na drugim ekranie. Odliczanie 5 sekund do powrotu obu ekranów do wskazań zaczyna się po zakończeniu ładowania BMP. Ikony A/C i FAN nie rysują się podczas logo ani menu. Pod zegarem są wiersze In, Out, Vent i Hum; Vent jest temperaturą z czujnika DHT, nie stanem żądania A/C.
 
-Poza menu obrót enkodera w lewo usypia oba ekrany, a w prawo je budzi. Powtórzenie ruchu w tę samą stronę nie przełącza stanu. Naciśnięcie otwiera menu i budzi ekrany. Odstęp ochronny między zaakceptowanymi naciśnięciami wynosi 450 ms, bez blokowania pętli.
+Poza menu obrót enkodera w lewo usypia oba ekrany, a w prawo je budzi. Powtórzenie ruchu w tę samą stronę nie przełącza stanu. Naciśnięcie otwiera menu i budzi ekrany. Odstęp ochronny między zaakceptowanymi naciśnięciami wynosi 150 ms, bez blokowania pętli.
 
 Pozycja `Clock View` zmienia układ zegara, zapisuje wybór i zamyka menu, aby od razu pokazać nowy widok.
 
@@ -120,3 +120,16 @@ Demo uruchamia się z EEPROM tylko dla zapisanej wartości `1`; pusta komórka `
 ## Granice tej dokumentacji
 
 Testy na stole nie zastępują próby z ECM w samochodzie. Nie zmieniono odczytu VPW ani skal PID. Dokładność rozszerzonych PID dla innych sterowników wymaga osobnego potwierdzenia.
+
+Aktualizacja 2026-11-10: ekran 1 odświeża zmienione pola co 200 ms. Ruchy enkodera są odczytywane również w szybkiej ścieżce LTE i trafiają do kolejki 16 zdarzeń. Obsługa menu i rysowanie odbywają się poza tą ścieżką. Kolejka dodaje 20 B statycznego RAM; nie gwarantuje natychmiastowego odrysowania podczas wysyłania treści POST.
+
+
+### Licznik restartów modemu (10 listopada 2026)
+
+Na dole drugiego ekranu, pod wilgotnością, mała szara ikona fal radiowych i liczba pokazują liczbę uruchomień procedury PWRKEY przez D12 od startu Arduino. Restart Arduino zeruje licznik. Ponowienie HTTP nie zwiększa licznika; samoczynnych restartów modemu i zaniku zasilania nie wykrywamy. Licznik zatrzymuje się na 65535, zajmuje 2 B RAM i nie zapisuje EEPROM ani SD. W menu i podczas logo wskaźnik pozostaje ukryty; kolor uwzględnia Dark.
+
+Dwukropki In:, Out: i Vent: mają wspólną kolumnę. Jednostka V przy BAT na pierwszym ekranie ma połowę poprzedniego rozmiaru. Zegar i data zachowują dwukolumnowy układ, nie są dynamicznie centrowane razem z każdym dniem tygodnia.
+
+### Weryfikacja wersji z licznikiem
+
+10 listopada 2026: 12 zestawów testów hosta zakończonych powodzeniem. Testy obejmują zwiększanie licznika wyłącznie przy D12, brak zwiększenia przy recovery HTTP, nasycenie na 65535, wyświetlenie wartości 0/9/10/65535 i ukrycie na menu. Kompilacja Mega: 107010 B Flash, 5863 B statycznego RAM (+2 B), 2329 B pozostaje na stos i zmienne lokalne. Firmware wgrano na COM14. W odczycie sprzętowym DPID działał, zapis SD miał 0 błędów, offset potwierdzony przez API rósł, a wolny RAM wynosił 1979 B. Nie wymuszano awarii modemu; wygląd fizycznego ekranu wymaga oceny użytkownika. Otwarcie konsoli powoduje w tym zestawie restart Arduino.

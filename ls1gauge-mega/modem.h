@@ -6,6 +6,7 @@
 #endif
 
 // One UART owner, fixed buffers, bounded RX/TX work on each loop iteration.
+uint16_t modemRestartCount = 0;
 static const uint8_t MODEM_BUDGET = 24;
 static const char AT_OK[] PROGMEM = "OK";
 struct AtTransaction {
@@ -316,6 +317,8 @@ void recoverModem() {
 }
 
 void startModemPowerCycle() {
+	if (modemRestartCount < UINT16_MAX)
+		++modemRestartCount;
 	cancelLogSend();
 	at.busy = at.done = false;
 	initReady = modemOnline = false;
