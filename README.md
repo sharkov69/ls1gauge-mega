@@ -12,6 +12,8 @@ Menu: Show pictures → TX → Dark → Gauge Mode → Clock Mode → Demo → R
 
 ## Dokumentacja
 
+- **[Dlaczego LTE miało zaległości i jak przyspieszyliśmy wysyłkę: RAM 2 kB / POST 4 kB](docs/LTE-PRZEPUSTOWOSC.md)** — diagnoza, pomiary przed i po, koszt RAM, wpływ na SD i pozostałe timeouty.
+
 - [Test RTC, DPID i zapisu po Battery z 9 listopada](docs/TESTY_RTC-20261109.md): ponad 16 minut na Mega z ECM, SD i LTE; bez resetu Arduino. Zapis trwa przy odbieranym Battery także przy RPM=0. Raport opisuje również nadal występujące błędy I²C i ponowienia LTE.
 
 - [CSV przez LTE, wznowienie modemu i czas RTC](docs/CSV_UPLOAD.md): aktualny tryb wysyłki, konfiguracja SD, PWRKEY na D12 i synchronizacja NTP z korektą powyżej 30 s.

@@ -1,10 +1,12 @@
 # CSV z SD przez SIM7600E-L1C
 
-Stan 2026-11-08: CSV/HTTPS jest jedynym transportem. Testy na Mega z SIM7600E-L1C potwierdziły wznowienie przez PWRKEY, synchronizację NTP i dalszy transfer CSV. Backend działa pod https://camaro.it-tiger.pl; import w P59 Scanner pozostaje osobnym etapem.
+Stan 2026-11-10: CSV/HTTPS jest jedynym transportem. Testy na Mega z SIM7600E-L1C potwierdziły wznowienie przez PWRKEY, synchronizację NTP i dalszy transfer CSV. Backend działa pod https://camaro.it-tiger.pl; import w P59 Scanner pozostaje osobnym etapem.
 
 Brak P59.CFG lub P59.TLS blokuje wysyłkę, ale nie zapis CSV. Usunięto stary transport binarny, token i przełącznik trybów.
 
 ## Działanie
+
+**Historia problemu i pomiary:** [zaległości LTE, bufor 2 kB i POST 4 kB](LTE-PRZEPUSTOWOSC.md).
 
 Arduino skanuje logi na SD, odczytuje pozycję zatwierdzoną przez serwer i wysyła porcje do 4096 B. Bufor danych ma 2048 B; drugi blok jest doczytywany z SD po wysłaniu pierwszego, a 58-bajtowy nagłówek pozostaje nienaruszony. Odczytuje tylko bajty po udanym `sync()`, do granicy ustalonej przed rozpoczęciem POST. Po utracie ACK pyta o pozycję ponownie. Błąd drugiego odczytu przerywa transmisję i uruchamia recovery, bez wysyłania starej zawartości bufora. Sesja HTTP obsługuje do 16 żądań, potem oddaje modem pozostałym zadaniom. Buforowanie UART i binarny ACK nie blokują pętli oczekiwaniem sieciowym. Nie ma przejścia na nieszyfrowany HTTP.
 
