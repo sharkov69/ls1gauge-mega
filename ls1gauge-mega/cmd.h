@@ -461,13 +461,16 @@ int16_t updateO2(objO2 &o2, int16_t v) {
 	return sum / O2SREDNIA;
 }
 
+bool vpwListenOnly = false;
 uint16_t lastSend = 0;
 bool transmitVpw(uint8_t *data, uint8_t size) {
+	if (vpwListenOnly) return false;
 	bool sent = vpw.send(data, size, 1);
 	lastSend = (uint16_t)millis();
 	return sent;
 }
 void send() {
+	if (vpwListenOnly) return;
 	czas = (uint16_t)millis(); // read() may have advanced lastRxEnd since loop entry.
 	const uint16_t guardRx = 10;
 	const bool canTransmit =
@@ -690,12 +693,131 @@ void decodeDpidPacket(uint8_t packet, const uint8_t *data) {
 	}
 }
 
+// Passive mapping stores only our channels; other DPID slots cost no RAM.
+class PassiveDpid {
+  public:
+	uint8_t packet[DPID_FIELD_COUNT] = {};
+	uint8_t slot[DPID_FIELD_COUNT] = {}; // Selector; bit 7 means confirmed stream start.
+	uint8_t request[10] = {}, requestSize = 0, tester = 0;
+	uint32_t requestAt = 0;
+	void reset() {
+		memset(packet, 0, sizeof(packet));
+		memset(slot, 0, sizeof(slot));
+		requestSize = tester = 0;
+	}
+	uint8_t found() const {
+		uint8_t count = 0;
+		for (uint8_t i = 0; i < DPID_FIELD_COUNT; ++i)
+			if (slot[i] & 0x80)
+				++count;
+		return count;
+	}
+	void receive(const uint8_t *p, uint8_t size, uint32_t now) {
+		if (size < 6 || p[0] != 0x6c)
+			return;
+		if (requestSize && (uint32_t)(now - requestAt) > 2000)
+			requestSize = 0;
+		if (p[1] == 0x10 && (p[3] == 0x2c || p[3] == 0x2a)) {
+			if (tester && tester != p[2])
+				reset();
+			tester = p[2];
+			requestSize = 0;
+			if (p[3] == 0x2a && p[4] == 0) {
+				reset();
+				tester = p[2];
+				return;
+			}
+			if (p[3] == 0x2c) {
+				// Invalidate before ACK: never decode a possibly overwritten layout.
+				for (uint8_t i = 0; i < DPID_FIELD_COUNT; ++i)
+					if (packet[i] == p[4]) {
+						slot[i] &= 0x7f;
+						const uint8_t oldStart = (slot[i] >> 3) & 7;
+						const uint8_t newStart = (p[5] >> 3) & 7;
+						if (oldStart < newStart + (p[5] & 7) && newStart < oldStart + (slot[i] & 7))
+							slot[i] = 0;
+					}
+				if (size != 11 || p[8] != 0xff || p[9] != 0xff)
+					return;
+				const uint8_t offset = (p[5] >> 3) & 7, length = p[5] & 7;
+				if ((p[5] & 0xc0) != 0x40 || !offset || !length || offset + length > 7)
+					return;
+			} else if (size < 7 || size > 10 || (p[4] & 0x0f) != 4 || (p[4] >> 4) == 0) {
+				return;
+			}
+			requestSize = size - 1;
+			memcpy(request, p, requestSize);
+			requestAt = now;
+			return;
+		}
+		if (p[2] != 0x10 || p[1] != tester)
+			return;
+		if (requestSize && request[3] == 0x2c && size == 7 && p[3] == 0x6c &&
+		    p[4] == request[4] && p[5] == request[5]) {
+			const uint16_t pid = ((uint16_t)request[6] << 8) | request[7];
+			for (uint8_t i = 0; i < DPID_FIELD_COUNT; ++i) {
+				const DpidField f = dpidField(i);
+				if (f.pid == pid && f.length == (request[5] & 7)) {
+					packet[i] = p[4];
+					slot[i] = p[5];
+				}
+			}
+			requestSize = 0;
+			return;
+		}
+		if (requestSize && p[3] == 0x7f && size == requestSize + 3 &&
+		    memcmp(p + 4, request + 3, requestSize - 3) == 0) {
+			if (p[size - 2] == 0x78)
+				return;
+			if (request[3] == 0x2a && p[size - 2] == 0x23)
+				for (uint8_t i = 0; i < DPID_FIELD_COUNT; ++i)
+					for (uint8_t j = 5; j < requestSize; ++j)
+						if (slot[i] && packet[i] == request[j])
+							slot[i] |= 0x80;
+			requestSize = 0;
+			return;
+		}
+		if (size != 12 || p[3] != 0x6a)
+			return;
+		for (uint8_t i = 0; i < DPID_FIELD_COUNT; ++i) {
+			if (!(slot[i] & 0x80) || packet[i] != p[4])
+				continue;
+			DpidField f = dpidField(i);
+			f.offset = ((slot[i] >> 3) & 7) - 1;
+			uint8_t reply[9] = {0x6c, 0xf1, 0x10, 0, 0, 0, 0, 0, 0};
+			if (f.pid > 0xff) {
+				reply[3] = 0x62;
+				reply[4] = f.pid >> 8;
+				reply[5] = f.pid;
+				memcpy(reply + 6, p + 5 + f.offset, f.length);
+				decodeGaugeReply(reply, 7 + f.length);
+			} else {
+				reply[3] = 0x41;
+				reply[4] = f.pid;
+				memcpy(reply + 5, p + 5 + f.offset, f.length);
+				decodeGaugeReply(reply, 6 + f.length);
+			}
+			++counter;
+		}
+	}
+} passiveDpid;
+
+void setVpwListenOnly(bool enabled) {
+	vpwListenOnly = enabled;
+	passiveDpid.reset();
+	dpid = VpwDpid();
+}
+
 void read() {
 	static uint8_t buff[BS];
 	uint8_t size;
 	while ((size = vpw.tryGetReceivedFrame(buff)) != 0) {
 		// All frames here passed CRC. Protect TX even for control/other bus traffic.
 		lastRxEnd = (uint16_t)millis();
+		if (vpwListenOnly) {
+			passiveDpid.receive(buff, size, millis());
+			continue;
+		}
 #if VPW_DPID_ENABLED
 		int8_t packet = dpid.receive(buff, size, millis());
 		if (packet >= 0) {

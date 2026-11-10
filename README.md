@@ -2,7 +2,13 @@
 
 Projekt wskaźników i rejestratora danych samochodowych na Arduino Mega 2560. Program odpytuje sterownik przez J1850 VPW, wyświetla parametry na dwóch ekranach GC9A01A, zapisuje logi CSV na karcie SD i wysyła ich fragmenty przez LTE/HTTPS do API. Odczytuje też temperatury, wilgotność i pozycję GPS.
 
-Gałąź `codex/vpw-stage1` zawiera obsługę czterech pakietów DPID dla P59: 21 odczytywanych kanałów ECU oraz dodatkowe flagi wydzielane z tych samych bajtów. Wszystkie 27 kanałów, łącznie z czujnikami lokalnymi i GPS, korzystają ze wspólnej struktury `Channel`. Autor potwierdził działanie wcześniejszej obsługi DPID na P59. Bieżący firmware sprawdzono testami hosta i na Mega z modemem: automatyczne wznowienie PWRKEY, NTP, zapis SD i wysyłka HTTPS. Użytkownik potwierdził działanie zegara i przycisków. Próba z 8 listopada nie obejmowała ECM. Poprawka z 9 listopada ogranicza oczekiwanie I²C, zachowuje czas po błędzie RTC i ponawia konfigurację DPID po przejściu na fallback.
+Gałąź `main` zawiera obsługę czterech pakietów DPID dla P59: 21 odczytywanych kanałów ECU oraz dodatkowe flagi wydzielane z tych samych bajtów. Wszystkie 27 kanałów, łącznie z czujnikami lokalnymi i GPS, korzystają ze wspólnej struktury `Channel`. Autor potwierdził działanie wcześniejszej obsługi DPID na P59. Bieżący firmware sprawdzono testami hosta i na Mega z modemem: automatyczne wznowienie PWRKEY, NTP, zapis SD i wysyłka HTTPS. Użytkownik potwierdził działanie zegara i przycisków. Próba z 8 listopada nie obejmowała ECM. Poprawka z 9 listopada ogranicza oczekiwanie I²C, zachowuje czas po błędzie RTC i ponawia konfigurację DPID po przejściu na fallback.
+
+## Tryb aktywny i nasłuch
+
+`TX: ON` samodzielnie konfiguruje cztery DPID. `TX: OFF` wyłącza nadawanie i uczy się konfiguracji drugiego adaptera. Włącz nasłuch przed uruchomieniem jego sesji; licznik u góry drugiego ekranu pokazuje znalezione kanały, np. `21/21`. Wybór pozostaje w EEPROM. Dane trafiają do tych samych kanałów, ekranów, CSV i LTE. [Instrukcja, ograniczenia i wyniki testu](docs/DZIALANIE.md#nasłuch-dpid-bez-nadawania).
+
+Menu: Show pictures → TX → Dark → Gauge Mode → Clock Mode → Demo → Restart. Mała ikona fal radiowych na dole drugiego ekranu pokazuje liczbę restartów modemu przez D12 w bieżącej sesji Arduino.
 
 ## Dokumentacja
 

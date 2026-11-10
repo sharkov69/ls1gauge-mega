@@ -63,5 +63,46 @@ int main(){
   fe[2]=0x10;
   for(int i=0;i<300;++i){inject(fe,12);inject(fd,12);}
   CHECK(counter==3300); // 5 Hz * 60 seconds * eleven decoded channel samples.
+  setVpwListenOnly(true);
+  CHECK(passiveDpid.found()==0);
+  const auto oldSend=lastSend;
+  uint8_t tx[]={0x6c,0x10,0xf1,0x3f};
+  CHECK(!transmitVpw(tx,4)); send(); CHECK(lastSend==oldSend);
+  // Every current channel, reordered and spread over 21 different packets.
+  for(uint8_t i=0;i<DPID_FIELD_COUNT;++i){
+    const auto f=dpidField(i);
+    const uint8_t packet=0x80+i, selector=0x40|(3<<3)|f.length;
+    uint8_t def[]={0x6c,0x10,0xf2,0x2c,packet,selector,(uint8_t)(f.pid>>8),(uint8_t)f.pid,0xff,0xff,0};
+    inject(def,sizeof(def));
+    uint8_t data[]={0x6c,0xf2,0x10,0x6a,packet,0,0,80,80,0,0,0};
+    auto before=counter; inject(data,sizeof(data)); CHECK(counter==before);
+    uint8_t ack[]={0x6c,0xf2,0x10,0x6c,packet,selector,0};
+    inject(ack,sizeof(ack)); inject(data,sizeof(data)); CHECK(counter==before);
+    const uint8_t group = 0x14 + (i % 4) * 0x10;
+    uint8_t start[]={0x6c,0x10,0xf2,0x2a,group,packet,0};
+    inject(start,sizeof(start));
+    uint8_t ready[]={0x6c,0xf2,0x10,0x7f,0x2a,group,packet,0x23,0};
+    inject(ready,sizeof(ready)); inject(data,sizeof(data));
+    CHECK(counter==before+1); CHECK(passiveDpid.found()==i+1);
+  }
+  // Redefining a slot as an unknown PID must discard its former meaning.
+  uint8_t unknown[]={0x6c,0x10,0xf2,0x2c,0x80,0x5a,0x7e,0x77,0xff,0xff,0};
+  inject(unknown,sizeof(unknown)); CHECK(passiveDpid.found()==20);
+  uint8_t stop[]={0x6c,0x10,0xf2,0x2a,0,0};
+  inject(stop,sizeof(stop)); CHECK(passiveDpid.found()==0);
+  // Multiple definitions in one packet must survive subsequent definitions.
+  uint8_t rpmDef[]={0x6c,0x10,0xf2,0x2c,0xfe,0x4a,0,0x0c,0xff,0xff,0};
+  uint8_t rpmAck[]={0x6c,0xf2,0x10,0x6c,0xfe,0x4a,0};
+  inject(rpmDef,sizeof(rpmDef));inject(rpmAck,sizeof(rpmAck));
+  uint8_t tpsDef[]={0x6c,0x10,0xf2,0x2c,0xfe,0x59,0,0x11,0xff,0xff,0};
+  uint8_t tpsAck[]={0x6c,0xf2,0x10,0x6c,0xfe,0x59,0};
+  inject(tpsDef,sizeof(tpsDef));inject(tpsAck,sizeof(tpsAck));
+  CHECK(passiveDpid.slot[0]==0x4a && passiveDpid.slot[1]==0x59);
+  // Wrong tester and late ACK cannot install a pending definition.
+  setVpwListenOnly(true);inject(rpmDef,sizeof(rpmDef));
+  rpmAck[1]=0xf1;inject(rpmAck,sizeof(rpmAck));CHECK(passiveDpid.slot[0]==0);
+  rpmAck[1]=0xf2;testMillisOffset+=2001;inject(rpmAck,sizeof(rpmAck));
+  CHECK(passiveDpid.slot[0]==0);
+  setVpwListenOnly(false);CHECK(!vpwListenOnly && dpid.state==VpwDpid::WAIT_ECU);
   printf("DPID integration failures: %d\n",failures);return failures?1:0;
 }

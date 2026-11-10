@@ -77,17 +77,19 @@ Opcja `Show pictures` wyszukuje do 12 plików `.bmp` w katalogu głównym. Przyg
 | 2 / D29 | Otwiera menu i budzi ekrany | Wykonuje wybraną opcję |
 | 3 / D31 | Brak działania | Następna pozycja |
 
-Menu wyświetla się na TFT 2. Program reaguje na nowe naciśnięcie, z odstępem 300 ms; przytrzymanie nie powtarza wyboru. Menu zamyka się po 5 s bezczynności. Zegar, temperatury i ikony A/C oraz FAN wracają po zamknięciu menu.
+Menu wyświetla się na TFT 2. Program reaguje na nowe naciśnięcie, z odstępem 150 ms i kolejką 16 zdarzeń; przytrzymanie nie powtarza wyboru. Menu zamyka się po 5 s bezczynności. Zegar, temperatury i ikony A/C oraz FAN wracają po zamknięciu menu.
 
 | Pozycja | Działanie |
 | --- | --- |
 | `Show pictures` | Zamyka menu, ładuje kolejny obraz z SD i zachowuje logo TFT 2; oba ekrany wracają do wskazań 5 s po załadowaniu BMP |
-| `Gauge View` | Zmiana układu pierwszego ekranu |
-| `Clock View` | Zmiana układu zegara |
+| `TX: ON/OFF` | ON: aktywny odczyt, OFF: nasłuch konfiguracji i danych drugiego adaptera; zapis w EEPROM |
+| `Dark: ON/OFF` | Kolory o intensywności 40%; zapis w EEPROM |
+| `Gauge Mode` | Zmiana układu pierwszego ekranu |
+| `Clock Mode` | Zmiana układu zegara |
 | `Demo: ON/OFF` | Przełącza demo i zapisuje stan w EEPROM; wartości zmieniają się co 500 ms |
 | `Restart` | Wywołanie funkcji pod adresem 0; nie odcina zasilania modułów |
 
-**Demo nie jest trybem izolowanym.** Program dalej wysyła zapytania VPW, a wygenerowane wartości mogą trafić do SD i na serwer. Przed rejestracją rzeczywistej jazdy sprawdź ustawienie demo. Uśpienie ekranów także nie zatrzymuje rejestracji.
+**Demo nie jest trybem izolowanym.** W trybie TX: ON program dalej wysyła zapytania VPW, a wygenerowane wartości mogą trafić do SD i na serwer. Przed rejestracją rzeczywistej jazdy sprawdź ustawienie demo. Uśpienie ekranów także nie zatrzymuje rejestracji.
 
 ## Diagnostyka
 
@@ -103,3 +105,5 @@ Włącz `DEBUG`, aby zobaczyć komunikaty na `Serial`. `TXRX` dodatkowo włącza
 | Modem powtarza inicjalizację | Zasilanie, UART, SIM, APN i PWRKEY na D12; przy braku odpowiedzi działa automatyczne wznawianie. Aktualny tryb CSV nie wymaga HTTP 403 ze starego endpointu |
 | Brak wysyłki mimo danych na SD | Zakończenie inicjalizacji modemu, endpoint i odpowiedź HTTP 200 na POST |
 | Błędna skala oleju w CSV | Rozbieżność dzielnika opisana w [formacie danych](DZIALANIE.md) |
+
+Komenda `MAP` pokazuje mapę nasłuchu wszystkich 21 PID-ów. Otwórz USB przed uruchomieniem konfiguracji drugiego adaptera: w tym zestawie otwarcie konsoli resetuje Arduino. Szczegóły nasłuchu opisuje [DZIALANIE.md](DZIALANIE.md#nasłuch-dpid-bez-nadawania).

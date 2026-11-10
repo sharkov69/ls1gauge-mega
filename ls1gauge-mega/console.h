@@ -13,7 +13,22 @@ void sampleFreeRam() {
 	if (available >= 0 && (uint16_t)available < minFreeRam)
 		minFreeRam = (uint16_t)available;
 }
+uint8_t mapReportIndex = DPID_FIELD_COUNT;
 void handleConsole() {
+	if (mapReportIndex < DPID_FIELD_COUNT) {
+		const DpidField field = dpidField(mapReportIndex);
+		const uint8_t slot = passiveDpid.slot[mapReportIndex];
+		char report[48];
+		const int n = snprintf_P(report, sizeof(report),
+		    PSTR("PID=%04X DPID=%02X offset=%u len=%u ready=%u\n"),
+		    field.pid, passiveDpid.packet[mapReportIndex],
+		    slot ? ((slot >> 3) & 7) - 1 : 0, field.length, (slot & 0x80) ? 1 : 0);
+		if (n > 0 && n < (int)sizeof(report) && Serial.availableForWrite() >= n) {
+			Serial.write((const uint8_t *)report, n);
+			++mapReportIndex;
+		}
+	}
+
 	static char line[28];
 	static uint8_t length = 0;
 	static bool overflow = false;
@@ -95,6 +110,8 @@ void handleConsole() {
 			if (n > 0 && n < (int)sizeof(report) && Serial.availableForWrite() >= n)
 				Serial.write((const uint8_t *)report, n);
 		}
+		if (!overflow && length == 3 && strcmp_P(line, PSTR("MAP")) == 0)
+			mapReportIndex = 0;
 		if (!overflow && length == 3 && strcmp_P(line, PSTR("VPW")) == 0) {
 			char report[64];
 			int n = snprintf_P(report, sizeof(report), PSTR("dpid=%u fe=%u fd=%u fail=%u err=%u\n"),

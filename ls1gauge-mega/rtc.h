@@ -78,6 +78,7 @@ void setRtcTime(const DateTime &value) {
 #define EEPROM_CLOCK_ADDR 16
 #define EEPROM_PAUSE_ADDR 17
 #define EEPROM_DARK_ADDR 19
+#define EEPROM_VPW_LISTEN_ADDR 20
 
 bool parseModemClock(const char *line, uint32_t &utc) {
 	if (strncmp_P(line, PSTR("+CCLK: \""), 8) != 0)
@@ -230,6 +231,16 @@ void drawTFT2() {
 	if (menuActive)
 		return;
 	if (guiStarted) {
+		if (vpwListenOnly) {
+			char count[6];
+			snprintf(count, sizeof(count), "%u/%u", passiveDpid.found(), DPID_FIELD_COUNT);
+			tft2.fillRect(102, 22, 36, 9, GC9A01A_BLACK);
+			tft2.setFont();
+			tft2.setTextSize(1);
+			tft2.setTextColor(displayColor(GC9A01A_DARKGREY));
+			tft2.setCursor(120 - strlen(count) * 3, 23);
+			tft2.print(count);
+		}
 		drawModemRestartCount();
 		int16_t kat2 = KAT + map(now.second(), 0, 60, 0, 300);
 

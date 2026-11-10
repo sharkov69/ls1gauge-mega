@@ -13,12 +13,12 @@ W `loop()` program obsługuje odbiór i nadawanie VPW, ekrany, przyciski, czujni
 | Zadanie | Interwał / warunek |
 | --- | --- |
 | Początek wyświetlania wskaźników | Około 5 s po zapisaniu czasu startu GUI |
-| Odświeżanie parametrów TFT 1 | 100 ms |
+| Odświeżanie parametrów TFT 1 | 200 ms |
 | Odczyt DHT22 i DS18B20, próba pobrania GPS | 2500 ms; GPS tylko po inicjalizacji i poza wysyłką logu |
 | Aktualizacja zegara i sumowanie pomiarów | Impuls SQW 1 Hz |
-| Wysyłka LTE/HTTPS | Z kolejki SD, do 1024 B CSV na żądanie; seria do 16 żądań, potem zwolnienie UART |
+| Wysyłka LTE/HTTPS | Z kolejki SD, do 4096 B CSV na żądanie; seria do 16 żądań, potem zwolnienie UART |
 | Czas z internetu | Po połączeniu LTE i co 6 godzin; ponowienie błędu po 5 minutach, korekta RTC tylko powyżej 30 s |
-| Zapis szybkiego CSV na SD | Jeden zestaw co 200 ms, niezależnie od LTE |
+| Zapis szybkiego CSV na SD | Cel: jeden zestaw co 200 ms; szybka ścieżka LTE może opóźnić zapis |
 | Statystyka RX | 20 przedziałów po 3 s, nominalnie ostatnia minuta |
 | Obsługa watchdog AVR | Odświeżenie co około 2 s przy limicie 4 s |
 
@@ -26,27 +26,37 @@ Flaga `tick` jest typu `bool`. Jeśli pętla utknie na dłużej niż sekundę, k
 
 ## Zapytania VPW
 
-Domyślnie program przełącza 11 kanałów na [dwa pakiety DPID](DPID.md), nominalnie co około 200 ms każdy. Poniższy harmonogram pojedynczych zapytań obowiązuje przed konfiguracją, po powrocie do legacy lub po wyłączeniu DPID. Przeliczniki obu trybów są wspólne.
+W trybie TX: ON program konfiguruje 21 PID-ów w czterech pakietach DPID; powtórzenie pakietów w dwóch grupach daje cel około 100 ms na pakiet. TX: OFF korzysta z konfiguracji drugiego adaptera, bez własnych zapytań. Poniższy harmonogram pojedynczych zapytań obowiązuje przed konfiguracją, po powrocie do legacy lub po wyłączeniu DPID. Przeliczniki obu trybów są wspólne.
 
-`send()` wybiera najbardziej opóźnione zapytanie z tablicy `cmd[]`. Respektuje minimalny odstęp `pause` oraz 10 ms od ostatniego przetworzonego odbioru. Wywołuje `vpw.send(..., 1)`, ograniczając oczekiwanie na wolną magistralę do 1 ms. Czas ostatniego wysłania aktualizuje tylko po sukcesie biblioteki. Pomiar TX usunięto. Sposób zliczania kanałów w trybie pakietowym opisuje [DPID.md](DPID.md). To potwierdzenie nadania bez wykrytej kolizji, nie odpowiedzi ECU.
+`send()` wybiera najbardziej opóźnione zapytanie z katalogu `DPID_FIELDS`. Respektuje minimalny odstęp `pause` oraz 10 ms od ostatniego przetworzonego odbioru. Wywołuje `vpw.send(..., 1)`, ograniczając oczekiwanie na wolną magistralę do 1 ms. Znacznik ostatniej próby TX aktualizuje po wywołaniu biblioteki; harmonogram konkretnego PID-u przesuwa tylko po sukcesie. Pomiar TX usunięto. Sposób zliczania kanałów w trybie pakietowym opisuje [DPID.md](DPID.md). To potwierdzenie nadania bez wykrytej kolizji, nie odpowiedzi ECU.
 
 Zapytania trybu `01` używają nagłówka `68 6A F1`; rozszerzone zapytania trybu `22` nagłówka `6C 10 F1` i dodatkowego bajtu `01` po PID. Biblioteka dopisuje CRC.
 
-| Indeks | Symbol | Znaczenie w programie | Tryb / PID | Nominalne odpytywanie |
-| --- | --- | --- | --- | --- |
-| 0 | `AIR` | Temperatura powietrza dolotowego | `01 / 0F` | 5000 ms |
-| 1 | `MAP` | Ciśnienie w kolektorze | `01 / 0B` | 500 ms |
-| 2 | `TPS` | Położenie przepustnicy | `01 / 11` | 250 ms |
-| 3 | `BATT` | Napięcie | `22 / 1141` | 5000 ms |
-| 4 | `O22` | AFR banku 2 według przelicznika projektu | `22 / 114E` | 500 ms |
-| 5 | `SPEED` | Prędkość pojazdu | `01 / 0D` | 500 ms |
-| 6 | `TRANS` | Temperatura skrzyni | `22 / 1940` | 5000 ms |
-| 7 | `SPARK` | **Ciśnienie oleju**, mimo nazwy symbolu | `22 / 115C` | 2500 ms |
-| 8 | `RPM` | Obroty silnika | `01 / 0C` | 250 ms |
-| 9 | `WATER` | Temperatura płynu chłodzącego | `01 / 05` | 5000 ms |
-| 10 | `O2` | AFR banku 1 według przelicznika projektu | `22 / 114B` | 500 ms |
-| 11–14 | `TEMP_AC`, `HUM`, `TEMP_OUT`, `TEMP_IN` | DHT22 i DS18B20 | Bez zapytań VPW | 2500 ms |
-| 15–16 | `LAT`, `LON` | Pozycja GPS z modemu | Bez zapytań VPW | Próba co 2500 ms |
+| Kanał | PID | Interwał fallback |
+| --- | --- | --- |
+| `RPM` | `0x000c` | 250 ms |
+| `TPS` | `0x0011` | 250 ms |
+| `MAP` | `0x000b` | 250 ms |
+| `SPEED` | `0x000d` | 250 ms |
+| `OIL` | `0x115c` | 5000 ms |
+| `O2` | `0x114b` | 250 ms |
+| `O22` | `0x114e` | 250 ms |
+| `BATT` | `0x1141` | 5000 ms |
+| `WATER` | `0x0005` | 5000 ms |
+| `AIR` | `0x000f` | 5000 ms |
+| `TRANS` | `0x1940` | 5000 ms |
+| `INJ1` | `0x125a` | 1000 ms |
+| `INJ2` | `0x125b` | 1000 ms |
+| `SA` | `0x000e` | 250 ms |
+| `PRNDL` | `0x1113` | 1000 ms |
+| `TCC` | `0x1900` | 1000 ms |
+| `SHIFT_MODE` | `0x1973` | 1000 ms |
+| `AC_STATE` | `0x1100` | 2000 ms |
+| `FAN_STATE` | `0x1106` | 2000 ms |
+| `KR` | `0x11a6` | 250 ms |
+| `CL_STATE` | `0x1105` | 2000 ms |
+
+Lokalne temperatury, wilgotność i GPS nie są PID-ami ECM ani pozycjami licznika 21 kanałów.
 
 To mapa obsługi obecnego programu, nie deklaracja zgodności rozszerzonych PID z każdym sterownikiem GM. Dopasowanie PID i przeliczników do innego ECU wymaga sprawdzenia.
 
@@ -112,6 +122,7 @@ NTP ustawia RTC tylko przy różnicy większej niż 30 s. Program przelicza UTC 
 | 17 | Pauza VPW w ms |
 | 18 | Flaga DEBUG_MODEM |
 | 19 | Tryb Dark (1 = ON, pozostałe = OFF) |
+| 20 | Nasłuch VPW (1 = TX OFF, pozostałe = TX ON) |
 | 64–95 | Trwały licznik plików CSV |
 
 
@@ -119,7 +130,7 @@ Demo uruchamia się z EEPROM tylko dla zapisanej wartości `1`; pusta komórka `
 
 ## Granice tej dokumentacji
 
-Testy na stole nie zastępują próby z ECM w samochodzie. Nie zmieniono odczytu VPW ani skal PID. Dokładność rozszerzonych PID dla innych sterowników wymaga osobnego potwierdzenia.
+Testy na stole nie zastępują próby z ECM w samochodzie. Nasłuch zmienia źródło mapowania VPW; skale znanych PID-ów pozostają wspólne. Dokładność rozszerzonych PID dla innych sterowników wymaga osobnego potwierdzenia.
 
 Aktualizacja 2026-11-10: ekran 1 odświeża zmienione pola co 200 ms. Ruchy enkodera są odczytywane również w szybkiej ścieżce LTE i trafiają do kolejki 16 zdarzeń. Obsługa menu i rysowanie odbywają się poza tą ścieżką. Kolejka dodaje 20 B statycznego RAM; nie gwarantuje natychmiastowego odrysowania podczas wysyłania treści POST.
 
@@ -133,3 +144,28 @@ Dwukropki In:, Out: i Vent: mają wspólną kolumnę. Jednostka V przy BAT na pi
 ### Weryfikacja wersji z licznikiem
 
 10 listopada 2026: 12 zestawów testów hosta zakończonych powodzeniem. Testy obejmują zwiększanie licznika wyłącznie przy D12, brak zwiększenia przy recovery HTTP, nasycenie na 65535, wyświetlenie wartości 0/9/10/65535 i ukrycie na menu. Kompilacja Mega: 107010 B Flash, 5863 B statycznego RAM (+2 B), 2329 B pozostaje na stos i zmienne lokalne. Firmware wgrano na COM14. W odczycie sprzętowym DPID działał, zapis SD miał 0 błędów, offset potwierdzony przez API rósł, a wolny RAM wynosił 1979 B. Nie wymuszano awarii modemu; wygląd fizycznego ekranu wymaga oceny użytkownika. Otwarcie konsoli powoduje w tym zestawie restart Arduino.
+
+### Nasłuch DPID bez nadawania
+
+Menu `TX: OFF` włącza nasłuch; `ON` przywraca dotychczasowy tryb aktywny. Ustawienie zapisuje się w EEPROM pod adresem 20 (tylko wartość 1 oznacza nasłuch). Przełączenie czyści mapę DPID, ale zachowuje ostatnie wartości kanałów. Nasłuch blokuje konfigurację, zapytania, keepalive i fallback Arduino; drugi adapter musi utrzymywać transmisję ECM.
+
+Na górze drugiego ekranu widnieje np. `19/21`: liczba naszych PID-ów z potwierdzoną definicją i startem strumienia. To stan mapowania, nie licznik świeżych odpowiedzi. Temperatury lokalne i GPS nie należą do tych 21 PID-ów. Po utracie transmisji obowiązują istniejące zasady świeżości i zachowania ostatnich wartości CSV.
+
+Arduino podsłuchuje fizyczne polecenia P59 2C, potwierdzenia 6C i start 2A z potwierdzeniem 7F/23. Obsługuje grupy x4 używane przez P59 Scanner, do czterech identyfikatorów na polecenie startu i sześć bajtów danych na pakiet. Śledzi adres jednego adaptera. Przy zmianie adaptera, stopie lub przełączeniu trybu czyści mapę. Nadpisanie slotu unieważnia dotychczasowe znaczenie; definicja staje się dostępna dopiero po zgodnym ACK. Potwierdzenia starsze niż 2 s są ignorowane. Definicje PID muszą mieć zgodną długość i maskę FFFF; odczyty adresów RAM i inne formaty nie są mapowane na kanały aplikacji.
+
+Należy włączyć nasłuch przed rozpoczęciem konfiguracji drugiego adaptera. Jeśli konfiguracja już się odbyła, trzeba ją powtórzyć na drugim adapterze. Nie zapisujemy mapy do EEPROM. Nieznane PID-y nie zwiększają RAM. Tryb aktywny, kolumny CSV, przeliczenia, SD i LTE zachowują dotychczasowe działanie. Brak odbioru Battery nadal podlega dotychczasowej bramce zapisu, więc brak tego PID-u w planie adaptera może zatrzymać nowe wiersze SD.
+
+Testy hosta obejmują wszystkie 21 kanałów rozłożone na 21 pakietów, różne grupy startu, brakujące, błędne i spóźnione ACK, nadpisanie nieznanym PID-em, wiele pól w jednym pakiecie, blokadę TX, powrót do trybu aktywnego oraz menu/EEPROM. Test na rzeczywistym drugim adapterze wymaga ponownego uruchomienia jego konfiguracji DPID; nie zastępują go testy hosta.
+
+Kolejność menu: Show pictures, TX: ON/OFF, Dark: ON/OFF, Gauge Mode, Clock Mode, Demo: ON/OFF, Restart. Zmiana kolejności nie zmienia adresów EEPROM.
+
+
+### Wyniki nasłuchu na stanowisku — 10 listopada 2026
+
+Użytkownik potwierdził 21/21 kanałów oraz około 6280 próbek/min w nasłuchu (około 5 Hz/kanał) i 12610 próbek/min po powrocie do aktywnego DPID (około 10 Hz/kanał). Pierwsza konfiguracja aktywna przeszła przez fallback; ponowienie po 30 s uruchomiło DPID.
+
+Odczyt API bez otwierania USB wykazał wszystkie 29 kolumn ECM w 742/742 wierszach, około 4,7 wiersza/s, medianę odstępu 200 ms i pojedynczy odstęp 1,214 s. Puste były tylko cztery kolumny lokalnych czujników i dwie GPS. SHA256 fragmentów, ciągłość offsetów i 36 kolumn CSV były poprawne. Opóźnienie LTE zmieniało się 21 → 65 → 34 s; transfer po spowolnieniu nadrabiał. Nie porównano całej zawartości karty z bazą i nie potwierdzono świeżości każdej wartości: CSV zachowuje ostatni odczyt.
+
+Aktualna kompilacja po uporządkowaniu menu, z diagnostyką MAP: 108784 B Flash, 5930 B statycznego RAM (2262 B na stos i dane lokalne); przyrost względem wersji bez nasłuchu wynosi 67 B. Komenda USB `MAP` wypisuje 21 wierszy z PID, DPID, offsetem od zera, długością i flagą ready. Raport wysyła najwyżej jeden wiersz na wywołanie konsoli, tylko gdy jest miejsce w buforze UART. Otwarcie portu USB w tym zestawie resetuje Arduino i usuwa mapę: konsolę należy otworzyć przed konfiguracją drugiego adaptera.
+
+Nasłuch nie pobiera obecnie kanałów z osobnych odpowiedzi na zapytania PID. Jeśli drugi adapter umieści Battery poza DPID, nie będzie aktualizował bramki zapisu. Zweryfikowany plan 21/21 zawiera wszystkie wymagane PID-y w DPID.

@@ -148,6 +148,7 @@ void setup() {
 	loadBMP();
 	debugSetupStage(6);
 	csvLoadProvisioning();
+	setVpwListenOnly(EEPROM.read(EEPROM_VPW_LISTEN_ADDR) == 1);
 	demo = EEPROM.read(EEPROM_DEMO_ADDR) == 1;
 	darkMode = EEPROM.read(EEPROM_DARK_ADDR) == 1;
 	guiMode = EEPROM.read(EEPROM_GUI_ADDR);

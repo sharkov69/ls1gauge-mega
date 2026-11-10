@@ -132,6 +132,15 @@ int main() {
     modemRestartCount = 0;
 
 #ifdef UI_TEST
+    menuActive = true;
+    handleMenuOption(1);
+    assert(vpwListenOnly && EEPROM.read(EEPROM_VPW_LISTEN_ADDR) == 1);
+    assert(trace.str().find("2:print,0/21") != std::string::npos);
+    handleMenuOption(1);
+    assert(!vpwListenOnly && EEPROM.read(EEPROM_VPW_LISTEN_ADDR) == 0);
+    trace.str("");
+    trace.clear();
+
     rtc.value = DateTime(2026,11,9,12,0,0);
     assert(rtcNow().unixtime() == rtc.value.unixtime());
     const uint32_t savedTime = rtc.value.unixtime();
@@ -227,6 +236,7 @@ int main() {
     buttons(1600,0); buttons(2000,4);
     buttons(2100,0); buttons(2500,4);
     UI_CHECK(menuPosition==3 && !demo);
+    menuPosition=5; // Demo follows TX, Dark, Gauge and Clock.
     buttons(2600,0); buttons(3000,2);
     UI_CHECK(demo && EEPROM.read(EEPROM_DEMO_ADDR)==1);
     const unsigned calls=randomCalls;
@@ -248,17 +258,18 @@ int main() {
     updateStartupScreen(19999); UI_CHECK(!guiStarted);
     updateStartupScreen(20000); UI_CHECK(guiStarted);
     UI_CHECK(trace.str().find("print,Vent:")!=std::string::npos);
-    menuActive=true; menuPosition=3; handleMenuOption(3);
+    menuActive=true; menuPosition=3; handleMenuOption(5);
     menuStartTime=20500;
     UI_CHECK(!demo && EEPROM.read(EEPROM_DEMO_ADDR)==0);
     // Inactive menu entries and navigation have exactly six positions.
-    UI_CHECK(MENU_OPTION_COUNT==6);
+    UI_CHECK(MENU_OPTION_COUNT==7);
     buttons(21000,0); buttons(21500,4); UI_CHECK(menuPosition==4);
     buttons(21600,0); buttons(22000,4); UI_CHECK(menuPosition==5);
-    buttons(22100,0); buttons(22500,4); UI_CHECK(menuPosition==0);
+    buttons(22100,0); buttons(22500,4); UI_CHECK(menuPosition==6);
+    buttons(22600,0); buttons(22900,4); UI_CHECK(menuPosition==0);
     const bool previousClockMode=clockMode;
     trace.str(""); trace.clear();
-    handleMenuOption(2);
+    handleMenuOption(4);
     UI_CHECK(!menuActive && clockMode!=previousClockMode);
     UI_CHECK(EEPROM.read(EEPROM_CLOCK_ADDR)==clockMode);
     UI_CHECK(!trace.str().empty());
@@ -285,11 +296,11 @@ int main() {
         UI_CHECK((scaled&31)==((c&31)*2/5));
     }
     darkMode=false; menuActive=true; guiStarted=true;
-    trace.str(""); trace.clear(); handleMenuOption(4);
+    trace.str(""); trace.clear(); handleMenuOption(2);
     UI_CHECK(darkMode && !menuActive && EEPROM.read(EEPROM_DARK_ADDR)==1);
     UI_CHECK(trace.str().find("color,25388")!=std::string::npos);
     UI_CHECK(trace.str().find("2:fillScreen,0")!=std::string::npos);
-    handleMenuOption(4);
+    handleMenuOption(2);
     UI_CHECK(!darkMode && EEPROM.read(EEPROM_DARK_ADDR)==0);
     // LTE fast path samples pulses without drawing; normal service preserves their order.
     menuActive=true;menuPosition=0;trace.str("");trace.clear();

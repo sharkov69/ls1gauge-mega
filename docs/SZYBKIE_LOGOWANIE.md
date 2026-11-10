@@ -1,6 +1,6 @@
 # Szybszy ekran, SD i LTE — 2026-11-03
 
-Ten raport opisuje wersję `8d95a67`. Aktualizacja z 2026-11-04 przywraca nazwy `l-`, zmienia CSV na format polskiego Excela z jedną kolumną czasu i naprawia daty FAT. Obecny format oraz wyniki pamięci opisuje [CSV_EXCEL.md](CSV_EXCEL.md). Interwały TFT i SD pozostają aktualne. Opis LTE poniżej jest historyczny; bieżący transport CSV/HTTPS opisuje [CSV_UPLOAD.md](CSV_UPLOAD.md).
+Ten raport opisuje wersję `8d95a67`. Aktualizacja z 2026-11-04 przywraca nazwy `l-`, zmienia CSV na format polskiego Excela z jedną kolumną czasu i naprawia daty FAT. Obecny format oraz wyniki pamięci opisuje [CSV_EXCEL.md](CSV_EXCEL.md). To raport historyczny: od 10 listopada TFT 1 ma interwał 200 ms, a SD nadal cel 200 ms. Bieżący opis zawiera [DZIALANIE.md](DZIALANIE.md). Opis LTE poniżej jest historyczny; bieżący transport CSV/HTTPS opisuje [CSV_UPLOAD.md](CSV_UPLOAD.md).
 
 Weryfikacja oryginału i wersji DPID potwierdziła, że logger nie zbierał wszystkich odebranych próbek. Odbiór zastępuje bieżące wartości w `cmd[]`. Ekran pobierał je co 400 ms, a logger co sekundę. Średnia z dwóch takich odczytów dawała jeden rekord co 2 s. Nie była to średnia ze wszystkich ramek między zapisami. Ten schemat pochodził z oryginalnego projektu.
 
